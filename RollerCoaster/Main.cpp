@@ -57,6 +57,13 @@ int main()
 
     std::cout << "GLEW uspjesno inicijalizovan." << std::endl;
 
+    // FPS limiter i delta time
+    const double TARGET_FPS = 75.0;
+    const double FRAME_DURATION = 1.0 / TARGET_FPS; // trajanje jednog frejma u sekundama ( priblizno 0.0133s)
+
+    // vrijeme posljednjeg iscrtanog frejma
+    double lastFrameTime = glfwGetTime();
+
     // kreiranje shadera
     unsigned int basicShader = createShader("basic.vert", "basic.frag");
 
@@ -98,32 +105,45 @@ int main()
     // glavna petlja 
     while (!glfwWindowShouldClose(window))
     {
-        // esc za iskljucivanje
+        // vrijeme od posljednjeg frejma
+        double currentTime = glfwGetTime();
+        double deltaTime = currentTime - lastFrameTime;
+
+        // FPS limiter - ako frejm traje krace od FRAME_DURATION, sacekaj
+        if (deltaTime < FRAME_DURATION) {
+            continue; // preskoci ostatak petlje, jos je rano za sljedeci frejm
+        }
+
+        // azuriranje vremena posljednjeg frejma
+        lastFrameTime = currentTime;
+
+        // ESC za izlaz 
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
             glfwSetWindowShouldClose(window, true);
         }
 
-        // pomjeranje kvadrata tastaturom (WASD)
-        float speed = 0.01f; // korak pomjeranja u jednom frejmu
+        // pomjeranje kvadrata - skalirano deltaTime-om 
+        float speed = 0.5f; // jedinica u sekundi
+        float velocity = speed * static_cast<float>(deltaTime);
 
         if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
-            offsetX -= speed; // lijevo
+            offsetX -= velocity; // lijevo
         }
         if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
-            offsetX += speed; // desno
+            offsetX += velocity; // desno
         }
         if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
-            offsetY += speed; // gore
+            offsetY += velocity; // gore
         }
         if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
-            offsetY -= speed; // dole
+            offsetY -= velocity; // dole
         }
 
         glClear(GL_COLOR_BUFFER_BIT);
 
         // crtanje kvadrata za provjeru
         glUseProgram(basicShader); // koristi shader 
-        
+
         glUniform2f(uOffsetLocation, offsetX, offsetY); // slanje offseta u shader
 
         glBindVertexArray(VAO);    // koristi VAO sa kvadratom
