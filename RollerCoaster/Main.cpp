@@ -11,6 +11,10 @@ int endProgram(const char* message) {
 
 int main()
 {
+    // pomjeraj kvadrata (vagona) po x i y osi
+    float offsetX = 0.0f;
+    float offsetY = 0.0f;
+
     // GLFW inicijalizacija
     if (!glfwInit()) {
         return endProgram("GLFW nije uspio da se inicijalizuje.");
@@ -56,6 +60,12 @@ int main()
     // kreiranje shadera
     unsigned int basicShader = createShader("basic.vert", "basic.frag");
 
+    // pronalazimo lokaciju uniforme uOffset u shaderu
+    int uOffsetLocation = glGetUniformLocation(basicShader, "uOffset");
+    if (uOffsetLocation == -1) {
+        std::cout << "uOffset nije pronadjen u shaderu!" << std::endl;
+    }
+
     // kreiranje VAO i VBO
     float vertices[] = {
      -0.2f, 0.2f, 0.0f, 0.0f, 1.0f, // gornje lijevo tjeme
@@ -88,10 +98,34 @@ int main()
     // glavna petlja 
     while (!glfwWindowShouldClose(window))
     {
+        // esc za iskljucivanje
+        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+            glfwSetWindowShouldClose(window, true);
+        }
+
+        // pomjeranje kvadrata tastaturom (WASD)
+        float speed = 0.01f; // korak pomjeranja u jednom frejmu
+
+        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
+            offsetX -= speed; // lijevo
+        }
+        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
+            offsetX += speed; // desno
+        }
+        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
+            offsetY += speed; // gore
+        }
+        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
+            offsetY -= speed; // dole
+        }
+
         glClear(GL_COLOR_BUFFER_BIT);
 
         // crtanje kvadrata za provjeru
         glUseProgram(basicShader); // koristi shader 
+        
+        glUniform2f(uOffsetLocation, offsetX, offsetY); // slanje offseta u shader
+
         glBindVertexArray(VAO);    // koristi VAO sa kvadratom
 
         glDrawArrays(GL_TRIANGLE_FAN, 0, 4); // 4 verteksa kao kvadrat
