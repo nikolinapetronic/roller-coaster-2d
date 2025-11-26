@@ -128,3 +128,32 @@ unsigned loadImageToTexture(const char* filePath) {
         return 0;
     }
 }
+
+GLFWcursor* loadImageToCursor(const char* filePath) {
+    int TextureWidth;
+    int TextureHeight;
+    int TextureChannels;
+
+    unsigned char* ImageData = stbi_load(filePath, &TextureWidth, &TextureHeight, &TextureChannels, 0);
+
+    if (ImageData != NULL)
+    {
+        GLFWimage image;
+        image.width = TextureWidth;
+        image.height = TextureHeight;
+        image.pixels = ImageData;
+
+        // tacka na povrsini slike kursora
+        int hotspotX = TextureWidth / 5;
+        int hotspotY = TextureHeight / 6;
+
+        GLFWcursor* cursor = glfwCreateCursor(&image, hotspotX, hotspotY);
+        stbi_image_free(ImageData);
+        return cursor;
+    }
+    else {
+        std::cout << "Kursor nije ucitan! Putanja kursora: " << filePath << std::endl;
+        stbi_image_free(ImageData);
+
+    }
+}

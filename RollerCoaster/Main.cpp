@@ -50,6 +50,9 @@ int main()
     int screenWidth = mode->width;
     int screenHeight = mode->height;
 
+    // faktor potreban za dobijanje kvadrata na pravouaonom ekranu (fullscreen mod)
+    float aspect = static_cast<float>(screenHeight) / static_cast<float>(screenWidth);
+
     // kreiranje fullscreen prozora
     GLFWwindow* window = glfwCreateWindow(
         screenWidth,
@@ -72,17 +75,27 @@ int main()
 
     std::cout << "GLEW uspjesno inicijalizovan." << std::endl;
 
+    // ucitavanje custom kursora
+    GLFWcursor* customCursor = loadImageToCursor("res/cursor.png");
+    if (customCursor != nullptr) {
+        glfwSetCursor(window, customCursor);
+        std::cout << "Custom kursor uspjesno postavljen." << std::endl;
+    }
+    else {
+        std::cout << "Custom kursor NIJE postavljen." << std::endl;
+    }
+
     // ukljucivanje alfa kanala za providnost
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     // ucitavanje teksture vagona
     unsigned int wagonTexture;
-    preprocessTexture(wagonTexture, "res/wagon.jpg");
+    preprocessTexture(wagonTexture, "res/cart.png");
 
     // ucitavanje teksture nameplatea
     unsigned int nameplateTexture;
-    preprocessTexture(nameplateTexture, "res/nameplate.png");
+    preprocessTexture(nameplateTexture, "res/nameplate1.png");
 
     // FPS limiter i delta time
     const double TARGET_FPS = 75.0;
@@ -117,12 +130,17 @@ int main()
     }
 
     // kreiranje VAO i VBO
+    float halfSize = 0.2f;                 // "visina" kvadrata u NDC
+    float halfWidth = halfSize * aspect;   // sirina korigovana aspect-om
+    float halfHeight = halfSize;           // visina ostaje ista
+
+    // x, y, u, v
     // x, y, u, v
     float vertices[] = {
-        -0.2f,  0.2f, 0.0f, 1.0f, // gornje lijevo tjeme  (u=0, v=1)
-        -0.2f, -0.2f, 0.0f, 0.0f, // donje lijevo tjeme   (u=0, v=0)
-         0.2f, -0.2f, 1.0f, 0.0f, // donje desno tjeme    (u=1, v=0)
-         0.2f,  0.2f, 1.0f, 1.0f  // gornje desno tjeme   (u=1, v=1)
+        -halfWidth,  halfHeight, 0.0f, 1.0f, // gornje lijevo tjeme (u=0, v=1)
+        -halfWidth, -halfHeight, 0.0f, 0.0f, // donje lijevo tjeme  (u=0, v=0)
+         halfWidth, -halfHeight, 1.0f, 0.0f, // donje desno tjeme   (u=1, v=0)
+         halfWidth,  halfHeight, 1.0f, 1.0f  // gornje desno tjeme  (u=1, v=1)
     };
 
     unsigned int VAO;
@@ -170,7 +188,7 @@ int main()
 
 
     // postavljanje boje pozadine
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f); 
+    glClearColor(0.68f, 0.85f, 0.90f, 1.0f); 
 
     // glavna petlja 
     while (!glfwWindowShouldClose(window))
@@ -234,7 +252,7 @@ int main()
         glUseProgram(basicShader);
 
         // nameplate poluprovidan
-        glUniform1f(uAlphaLocation, 0.8f);
+        glUniform1f(uAlphaLocation, 0.1f);
 
         // nameplate statican u uglu, bez pomjeranja WASD-om
         glUniform2f(uOffsetLocation, 0.0f, 0.0f);
