@@ -9,6 +9,22 @@ int endProgram(const char* message) {
     return -1;
 }
 
+void preprocessTexture(unsigned& texture, const char* filepath) {
+    texture = loadImageToTexture(filepath); // ucitavanje teksture
+    glBindTexture(GL_TEXTURE_2D, texture); // vezujemo se za teksturu kako bismo je podesili
+
+    // generisanje mipmapa - predefinisani razliciti formati za lakše skaliranje po potrebi
+    glGenerateMipmap(GL_TEXTURE_2D);
+
+    // podesavanje strategija za wrap-ovanje
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT); // S - tekseli po x-osi
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT); // T - tekseli po y-osi
+
+    // podesavanje algoritma za smanjivanje i povecavanje rezolucije: nearest - bira najblizi piksel, linear - usrednjava okolne piksele
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+}
+
 int main()
 {
     // pomjeraj kvadrata (vagona) po x i y osi
@@ -46,7 +62,6 @@ int main()
         return endProgram("Prozor nije uspio da se kreira.");
     }
 
-
     // povezivanje OpenGL konteksta sa prozorom
     glfwMakeContextCurrent(window);
 
@@ -56,6 +71,14 @@ int main()
     }
 
     std::cout << "GLEW uspjesno inicijalizovan." << std::endl;
+
+    // ukljucivanje alfa kanala za providnost
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    // ucitavanje teksture vagona
+    unsigned int wagonTexture;
+    preprocessTexture(wagonTexture, "res/wagon.jpg");
 
     // FPS limiter i delta time
     const double TARGET_FPS = 75.0;
@@ -73,12 +96,23 @@ int main()
         std::cout << "uOffset nije pronadjen u shaderu!" << std::endl;
     }
 
+    // uniform za teksturu (sampler2D)
+    int uTexLocation = glGetUniformLocation(basicShader, "uTex");
+    if (uTexLocation == -1) {
+        std::cout << "uTex nije pronadjen u shaderu!" << std::endl;
+    }
+
+    // podesimo da uTex koristi teksturnu jedinicu 0
+    glUseProgram(basicShader);
+    glUniform1i(uTexLocation, 0);  // GL_TEXTURE0
+
     // kreiranje VAO i VBO
+    // x, y, u, v
     float vertices[] = {
-     -0.2f, 0.2f, 0.0f, 0.0f, 1.0f, // gornje lijevo tjeme
-     -0.2f, -0.2f, 0.0f, 1.0f, 0.0f, // donje lijevo tjeme
-      0.2f, -0.2f, 1.0f, 0.0f, 0.0f, // donje desno tjeme
-      0.2f, 0.2f, 0.0f, 1.0f, 1.0f  // gornje desno tjeme
+        -0.2f,  0.2f, 0.0f, 1.0f, // gornje lijevo tjeme  (u=0, v=1)
+        -0.2f, -0.2f, 0.0f, 0.0f, // donje lijevo tjeme   (u=0, v=0)
+         0.2f, -0.2f, 1.0f, 0.0f, // donje desno tjeme    (u=1, v=0)
+         0.2f,  0.2f, 1.0f, 1.0f  // gornje desno tjeme   (u=1, v=1)
     };
 
     unsigned int VAO;
@@ -90,12 +124,12 @@ int main()
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
 
-    // pozicija
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+    // pozicija (x, y)
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
-    // boja
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(2 * sizeof(float)));
+    // tex koordinate (u, v)
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
     glEnableVertexAttribArray(1);
 
 
@@ -140,6 +174,10 @@ int main()
         }
 
         glClear(GL_COLOR_BUFFER_BIT);
+
+        // biramo teksturnu jedinicu 0 i vezujemo teksturu vagona
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, wagonTexture);
 
         // crtanje kvadrata za provjeru
         glUseProgram(basicShader); // koristi shader 

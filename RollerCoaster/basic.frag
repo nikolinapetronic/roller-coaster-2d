@@ -1,9 +1,12 @@
 #version 330 core
 
-in vec3 chCol;
-out vec3 outCol;
+in vec2 TexCoord;
+
+out vec4 FragColor;
+
+uniform sampler2D uTex;  // tekstura koju crtamo
 
 void main()
 {
-    outCol = chCol;
-} 
+    FragColor = texture(uTex, TexCoord);
+}
