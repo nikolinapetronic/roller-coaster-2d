@@ -80,6 +80,10 @@ int main()
     unsigned int wagonTexture;
     preprocessTexture(wagonTexture, "res/wagon.jpg");
 
+    // ucitavanje teksture nameplatea
+    unsigned int nameplateTexture;
+    preprocessTexture(nameplateTexture, "res/nameplate.png");
+
     // FPS limiter i delta time
     const double TARGET_FPS = 75.0;
     const double FRAME_DURATION = 1.0 / TARGET_FPS; // trajanje jednog frejma u sekundama ( priblizno 0.0133s)
@@ -105,6 +109,12 @@ int main()
     // podesimo da uTex koristi teksturnu jedinicu 0
     glUseProgram(basicShader);
     glUniform1i(uTexLocation, 0);  // GL_TEXTURE0
+
+    // uniforma za dodatnu providnost
+    int uAlphaLocation = glGetUniformLocation(basicShader, "uAlpha");
+    if (uAlphaLocation == -1) {
+        std::cout << "uAlpha nije pronadjen u shaderu!" << std::endl;
+    }
 
     // kreiranje VAO i VBO
     // x, y, u, v
@@ -132,9 +142,35 @@ int main()
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
     glEnableVertexAttribArray(1);
 
+    // VAO i VBO za nameplate (ime u gornjem lijevom uglu) 
+
+    float nameplateVertices[] = {
+    -1.0f,  1.0f,   0.0f, 1.0f, // gornje lijevo
+    -1.0f,  0.65f,  0.0f, 0.0f, // donje lijevo
+    -0.625f,0.65f,  1.0f, 0.0f, // donje desno
+    -0.625f,1.0f,   1.0f, 1.0f  // gornje desno
+    };
+
+    unsigned int VAONameplate;
+    unsigned int VBONameplate;
+    glGenVertexArrays(1, &VAONameplate);
+    glGenBuffers(1, &VBONameplate);
+
+    glBindVertexArray(VAONameplate);
+    glBindBuffer(GL_ARRAY_BUFFER, VBONameplate);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(nameplateVertices), nameplateVertices, GL_STATIC_DRAW);
+
+    // pozicija (x, y)
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    // tex koordinate (u, v)
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+
 
     // postavljanje boje pozadine
-    glClearColor(1.0f, 0.8f, 0.9f, 1.0f);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f); 
 
     // glavna petlja 
     while (!glfwWindowShouldClose(window))
@@ -182,11 +218,29 @@ int main()
         // crtanje kvadrata za provjeru
         glUseProgram(basicShader); // koristi shader 
 
+        // vagon je potpuno neprovidan
+        glUniform1f(uAlphaLocation, 1.0f);
+
         glUniform2f(uOffsetLocation, offsetX, offsetY); // slanje offseta u shader
 
         glBindVertexArray(VAO);    // koristi VAO sa kvadratom
 
         glDrawArrays(GL_TRIANGLE_FAN, 0, 4); // 4 verteksa kao kvadrat
+
+        // crtanje nameplate-a
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, nameplateTexture);
+
+        glUseProgram(basicShader);
+
+        // nameplate poluprovidan
+        glUniform1f(uAlphaLocation, 0.8f);
+
+        // nameplate statican u uglu, bez pomjeranja WASD-om
+        glUniform2f(uOffsetLocation, 0.0f, 0.0f);
+
+        glBindVertexArray(VAONameplate);
+        glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 
         glfwSwapBuffers(window);
         glfwPollEvents();
