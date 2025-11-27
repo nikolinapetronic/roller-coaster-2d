@@ -301,6 +301,44 @@ int main()
     // deblja linija da izgleda kao sina
     glLineWidth(3.0f);
 
+    // ------------------ STUBOVI ISPOD PRUGE ------------------
+
+    // broj stubova
+    const int SUPPORT_COUNT = 35;
+    float supportVertices[SUPPORT_COUNT * 4];
+    // svaki stub ima 2 verteksa: (x_top, y_top), (x_top, y_bottom) => 4 floats
+
+    float bottomY = -0.98f; 
+
+    for (int i = 0; i < SUPPORT_COUNT; ++i) {
+        // uzmi tacku sa pruge na odredjenom mjestu
+        int trackIndex = i * (TRACK_POINT_COUNT - 1) / (SUPPORT_COUNT - 1);
+        float x_top = trackVertices[trackIndex * 2];
+        float y_top = trackVertices[trackIndex * 2 + 1];
+
+        // gornja tacka (na pruzi)
+        supportVertices[i * 4 + 0] = x_top;
+        supportVertices[i * 4 + 1] = y_top;
+
+        // donja tacka (na dnu konstrukcije)
+        supportVertices[i * 4 + 2] = x_top;
+        supportVertices[i * 4 + 3] = bottomY;
+    }
+
+    // VAO/VBO za stubove (GL_LINES)
+    unsigned int VAOSupports;
+    unsigned int VBOSupports;
+    glGenVertexArrays(1, &VAOSupports);
+    glGenBuffers(1, &VBOSupports);
+
+    glBindVertexArray(VAOSupports);
+    glBindBuffer(GL_ARRAY_BUFFER, VBOSupports);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(supportVertices), supportVertices, GL_STATIC_DRAW);
+
+    // atribut 0: pozicija (x, y)
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
 
     // VAO i VBO za nameplate (ime u gornjem lijevom uglu) 
 
@@ -379,6 +417,11 @@ int main()
 
         glBindVertexArray(VAOTrack);
         glDrawArrays(GL_LINE_STRIP, 0, TRACK_POINT_COUNT);
+
+        // crtanje stubova ispod pruge (isti shader i boja kao za prugu)
+        glBindVertexArray(VAOSupports);
+        glDrawArrays(GL_LINES, 0, SUPPORT_COUNT * 2);
+
 
         // biramo teksturnu jedinicu 0 i vezujemo teksturu vagona
         glActiveTexture(GL_TEXTURE0);
