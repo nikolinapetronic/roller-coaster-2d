@@ -26,6 +26,8 @@
     <None Include="packages.config" />
     <None Include="basic.vert" />
     <None Include="basic.frag" />
+    <None Include="track.vert" />
+    <None Include="track.frag" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Util.h">

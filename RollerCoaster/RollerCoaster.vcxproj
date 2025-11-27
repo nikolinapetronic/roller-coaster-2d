@@ -131,6 +131,8 @@
     <None Include="basic.frag" />
     <None Include="basic.vert" />
     <None Include="packages.config" />
+    <None Include="track.frag" />
+    <None Include="track.vert" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="stb_image.h" />

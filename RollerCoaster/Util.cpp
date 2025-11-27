@@ -154,6 +154,7 @@ GLFWcursor* loadImageToCursor(const char* filePath) {
     else {
         std::cout << "Kursor nije ucitan! Putanja kursora: " << filePath << std::endl;
         stbi_image_free(ImageData);
+        return nullptr;
 
     }
 }

@@ -1,7 +1,9 @@
+#define _USE_MATH_DEFINES
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #include "Util.h"
 #include <iostream>
+#include <cmath>
 
 int endProgram(const char* message) {
     std::cout << message << std::endl;
@@ -76,7 +78,7 @@ int main()
     std::cout << "GLEW uspjesno inicijalizovan." << std::endl;
 
     // ucitavanje custom kursora
-    GLFWcursor* customCursor = loadImageToCursor("res/cursor.png");
+    GLFWcursor* customCursor = loadImageToCursor("res/cursor2.png");
     if (customCursor != nullptr) {
         glfwSetCursor(window, customCursor);
         std::cout << "Custom kursor uspjesno postavljen." << std::endl;
@@ -106,6 +108,13 @@ int main()
 
     // kreiranje shadera
     unsigned int basicShader = createShader("basic.vert", "basic.frag");
+
+    // shader za prugu (samo boja, bez teksture)
+    unsigned int trackShader = createShader("track.vert", "track.frag");
+    int uTrackColorLocation = glGetUniformLocation(trackShader, "uColor");
+    if (uTrackColorLocation == -1) {
+        std::cout << "uColor (track) nije pronadjen u shaderu!" << std::endl;
+    }
 
     // pronalazimo lokaciju uniforme uOffset u shaderu
     int uOffsetLocation = glGetUniformLocation(basicShader, "uOffset");
@@ -159,6 +168,139 @@ int main()
     // tex koordinate (u, v)
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
     glEnableVertexAttribArray(1);
+
+    // ------------------  VAO/VBO za prugu rolerkostera (Bezier sa C1 kontinuitetom) ------------------
+
+        // pomocna funkcija: kubna Bezier kriva za y koordinatu 
+    auto bezierY = [](float t, float p0, float p1, float p2, float p3) -> float {
+        float u = 1.0f - t;
+        return u * u * u * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t * p3;
+        };
+
+    const int TRACK_SEGMENTS = 1500; // povecan broj segmenata za glatku krivu
+    float trackVertices[(TRACK_SEGMENTS + 1) * 2];
+
+    // kontrolne tacke za cijelu stazu
+    // definisanje unaprijed, osiguravanje C1 kontinuet
+
+    // y-koordinate kljucnih tacaka (P0 i P3 za svaki segment)
+    float y_start =  -0.5f;    // pocetak staze (lijevo)
+    float y_mid_valley1 = -0.3f; // prva dolina
+    float y_peak1 = 0.2f;      // prvi vrh
+    float y_mid_valley2 = -0.4f; // druga dublja dolina
+    float y_peak2 = 0.5f;      // drugi visi vrh
+    float y_mid_valley3 = -0.2f; // treca dolina
+    float y_peak3 = 0.3f;      // treci vrh
+    float y_end = -0.02f;     // kraj staze (desno)
+
+    // odredjivanje X-pozicija segmenata
+    // totalni opseg X je od -1.0 do 1.0
+    // podijelicemo ga na 7 segmenata (jer imamo 8 kljucnih Y tacaka)
+    float x_segments[] = {
+        0.0f, // t=0.0 -> x=-1.0
+        0.15f, // kraj prvog segmenta (uspon ka peak1)
+        0.35f, // kraj drugog segmenta (pad u valley2)
+        0.50f, // kraj treceg segmenta (uspon ka peak2)
+        0.65f, // kraj cetvrtog segmenta (pad u valley3)
+        0.80f, // kraj petog segmenta (uspon ka peak3)
+        0.95f, // kraj sestog segmenta (pad ka kraju)
+        1.0f   // t=1.0 -> x=1.0
+    };
+
+    // kljucne y koordinate za C1 kontinuitet
+    // ove P0 i P3 ce biti spojevi segmenata
+    // P1_next = P0_next + (P0_next - P2_current)
+
+    // pocetne tacke
+    float current_P0 = y_start;
+    float current_P1 = y_start + 0.05f; // blago nagore, glatki start
+    float current_P2 = y_start + 0.15f; // dalje od P1 za sirinu
+    float current_P3;
+
+    for (int i = 0; i <= TRACK_SEGMENTS; ++i) {
+        float t = i / static_cast<float>(TRACK_SEGMENTS); // t_global od 0 do 1
+        float x = -1.0f + 2.0f * t;
+        float y;
+
+        // segment 1: start -> prvi brijeg (y_start do y_peak1)
+        if (t <= x_segments[1]) {
+            float u = t / x_segments[1]; // lokalni t za segment
+            current_P0 = y_start;
+            current_P1 = y_start + 0.1f; // kontrola nagiba od starta
+            current_P2 = y_peak1 - 0.1f; // kontrola nagiba ka vrhu
+            current_P3 = y_peak1;       // kraj prvog segmenta
+            y = bezierY(u, current_P0, current_P1, current_P2, current_P3);
+        }
+        // segment 2: prvi brijeg -> prva dolina (y_peak1 do y_mid_valley2)
+        else if (t <= x_segments[2]) {
+            float u = (t - x_segments[1]) / (x_segments[2] - x_segments[1]);
+            current_P0 = y_peak1;
+            // P1 = P0 + (P0 - P2_prev)
+            current_P1 = current_P0 + (current_P0 - (y_peak1 - 0.1f)); // C1 kontinuitet
+            current_P2 = y_mid_valley2 + 0.1f; // kontrola nagiba ka dolini
+            current_P3 = y_mid_valley2;       // kraj drugog segmenta
+            y = bezierY(u, current_P0, current_P1, current_P2, current_P3);
+        }
+        // segment 3: prva dolina -> drugi brijeg (y_mid_valley2 do y_peak2)
+        else if (t <= x_segments[3]) {
+            float u = (t - x_segments[2]) / (x_segments[3] - x_segments[2]);
+            current_P0 = y_mid_valley2;
+            current_P1 = current_P0 + (current_P0 - (y_mid_valley2 + 0.1f)); // C1 kontinuitet
+            current_P2 = y_peak2 - 0.15f; // kontrola nagiba ka visem vrhu
+            current_P3 = y_peak2;         // kraj treceg segmenta
+            y = bezierY(u, current_P0, current_P1, current_P2, current_P3);
+        }
+        // segment 4: drugi brijeg -> druga dolina (y_peak2 do y_mid_valley3)
+        else if (t <= x_segments[4]) {
+            float u = (t - x_segments[3]) / (x_segments[4] - x_segments[3]);
+            current_P0 = y_peak2;
+            current_P1 = current_P0 + (current_P0 - (y_peak2 - 0.15f)); // C1 kontinuitet
+            current_P2 = y_mid_valley3 + 0.05f; // kontrola nagiba ka dolini
+            current_P3 = y_mid_valley3;         // kraj cetvrtog segmenta
+            y = bezierY(u, current_P0, current_P1, current_P2, current_P3);
+        }
+        // segment 5: druga dolina -> treci brijeg (y_mid_valley3 do y_peak3)
+        else if (t <= x_segments[5]) {
+            float u = (t - x_segments[4]) / (x_segments[5] - x_segments[4]);
+            current_P0 = y_mid_valley3;
+            current_P1 = current_P0 + (current_P0 - (y_mid_valley3 + 0.05f)); // C1 kontinuitet
+            current_P2 = y_peak3 - 0.1f; // kontrola nagiba ka trecem vrhu
+            current_P3 = y_peak3;       // kraj petog segmenta
+            y = bezierY(u, current_P0, current_P1, current_P2, current_P3);
+        }
+        // segment 6: treci brijeg -> kraj (y_peak3 do y_end)
+        else { // t > x_segments[5]
+            float u = (t - x_segments[5]) / (x_segments[6] - x_segments[5]); // do kraja
+            current_P0 = y_peak3;
+            current_P1 = current_P0 + (current_P0 - (y_peak3 - 0.1f)); // C1 kontinuitet
+            current_P2 = y_end + 0.05f; // kontrola nagiba ka kraju
+            current_P3 = y_end;         // kraj staze
+            y = bezierY(u, current_P0, current_P1, current_P2, current_P3);
+        }
+
+        trackVertices[i * 2] = x;
+        trackVertices[i * 2 + 1] = y;
+    }
+
+    const int TRACK_POINT_COUNT = TRACK_SEGMENTS + 1;
+
+    // VAO/VBO za prugu (jedna linija)
+    unsigned int VAOTrack;
+    unsigned int VBOTrack;
+    glGenVertexArrays(1, &VAOTrack);
+    glGenBuffers(1, &VBOTrack);
+
+    glBindVertexArray(VAOTrack);
+    glBindBuffer(GL_ARRAY_BUFFER, VBOTrack);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(trackVertices), trackVertices, GL_STATIC_DRAW);
+
+    // atribut 0: pozicija (x, y)
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    // deblja linija da izgleda kao sina
+    glLineWidth(3.0f);
+
 
     // VAO i VBO za nameplate (ime u gornjem lijevom uglu) 
 
@@ -228,6 +370,15 @@ int main()
         }
 
         glClear(GL_COLOR_BUFFER_BIT);
+
+        // crtanje pruge - jedna glatka kriva sa ravnim dijelovima
+        glUseProgram(trackShader);
+
+        // tamno siva boja
+        glUniform3f(uTrackColorLocation, 0.2f, 0.2f, 0.2f);
+
+        glBindVertexArray(VAOTrack);
+        glDrawArrays(GL_LINE_STRIP, 0, TRACK_POINT_COUNT);
 
         // biramo teksturnu jedinicu 0 i vezujemo teksturu vagona
         glActiveTexture(GL_TEXTURE0);
