@@ -1,3 +1,6 @@
+########################
+# C++ 
+########################
 # Prerequisites
 *.d
 
@@ -39,3 +42,28 @@
 
 # debug information files
 *.dwo
+
+########################
+# Visual Studio
+########################
+.vs/
+*.vcxproj.user
+*.VC.db
+*.VC.opendb
+
+# Build folders
+Debug/
+Release/
+x64/
+x86/
+ipch/
+
+# VS files
+*.log
+*.tlog
+
+########################
+# NuGet packages
+########################
+packages/
+*.nupkg
