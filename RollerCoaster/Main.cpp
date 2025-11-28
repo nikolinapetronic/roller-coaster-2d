@@ -27,11 +27,24 @@ void preprocessTexture(unsigned& texture, const char* filepath) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 }
 
+struct Seat {
+    float localX;    // lokalna pozicija u odnosu na centar vagona (NDC)
+    float localY;    // lokalna pozicija u odnosu na centar vagona (NDC)
+    bool occupied;   // da li postoji putnik
+    bool beltOn;     // da li je pojas zakopcan
+};
+
+
 int main()
 {
     // pomjeraj kvadrata (vagona) po x i y osi
     float offsetX = 0.0f;
     float offsetY = 0.0f;
+    
+    bool spaceWasPressedLastFrame = false;
+    // podaci o 8 sjedista u vagonu
+    const int SEAT_COUNT = 8;
+    Seat seats[SEAT_COUNT];
 
     // GLFW inicijalizacija
     if (!glfwInit()) {
@@ -93,11 +106,19 @@ int main()
 
     // ucitavanje teksture vagona
     unsigned int wagonTexture;
-    preprocessTexture(wagonTexture, "res/cart.png");
+    preprocessTexture(wagonTexture, "res/cart1.png");
 
     // ucitavanje teksture nameplatea
     unsigned int nameplateTexture;
     preprocessTexture(nameplateTexture, "res/nameplate1.png");
+
+    // ucitavanje teksture putnika
+    unsigned int passengerTexture;
+    preprocessTexture(passengerTexture, "res/passenger.png");
+
+    // ucitavanje teksture pojasa
+    unsigned int beltTexture;
+    preprocessTexture(beltTexture, "res/seatbelt.png");
 
     // FPS limiter i delta time
     const double TARGET_FPS = 75.0;
@@ -138,19 +159,54 @@ int main()
         std::cout << "uAlpha nije pronadjen u shaderu!" << std::endl;
     }
 
-    // kreiranje VAO i VBO
-    float halfSize = 0.2f;                 // "visina" kvadrata u NDC
-    float halfWidth = halfSize * aspect;   // sirina korigovana aspect-om
-    float halfHeight = halfSize;           // visina ostaje ista
+    // kreiranje VAO i VBO za vagon
+    // visina vagona na ekranu
+    float cartHalfHeight = 0.21f;
 
-    // x, y, u, v
-    // x, y, u, v
+    // faktor koliko je sirina veca od visine (npr. 3x)
+    float cartShapeRatio = 1.7f;
+
+    // sirina korigovana aspect-om i oblikom
+    float cartHalfWidth = cartHalfHeight * cartShapeRatio * aspect;
+
+    // x, y, u, v  (i dalje cijela tekstura preko pravougaonika)
     float vertices[] = {
-        -halfWidth,  halfHeight, 0.0f, 1.0f, // gornje lijevo tjeme (u=0, v=1)
-        -halfWidth, -halfHeight, 0.0f, 0.0f, // donje lijevo tjeme  (u=0, v=0)
-         halfWidth, -halfHeight, 1.0f, 0.0f, // donje desno tjeme   (u=1, v=0)
-         halfWidth,  halfHeight, 1.0f, 1.0f  // gornje desno tjeme  (u=1, v=1)
+        -cartHalfWidth,  cartHalfHeight, 0.0f, 1.0f,
+        -cartHalfWidth, -cartHalfHeight, 0.0f, 0.0f,
+         cartHalfWidth, -cartHalfHeight, 1.0f, 0.0f,
+         cartHalfWidth,  cartHalfHeight, 1.0f, 1.0f
     };
+
+    // ----------------- Inicijalizacija 8 sjedista (1 red) -----------------
+    float innerMargin = 0.25f;
+
+    // lijeva i desna granica unutrasnjosti vagona
+    float seatsLeftX = -cartHalfWidth * (1.0f - innerMargin);
+    float seatsRightX = cartHalfWidth * (1.0f - innerMargin);
+
+    // rucno pomjeranje cijelog reda sjedista malo ulijevo
+    float seatShiftX = -0.01f;
+    seatsLeftX += seatShiftX;
+    seatsRightX += seatShiftX;
+
+    // ukupni span za sjedista
+    float seatSpan = seatsRightX - seatsLeftX;
+
+    // razmak izmedju centara sjedista
+    // dijeljenje sa SEAT_COUNT i pomjeranje za pola koraka da prvi/poslednji nisu skroz uz ivicu
+    float seatStep = seatSpan / SEAT_COUNT;
+
+    // visina sjedista unutar vagona (po y-osi)
+    float seatsY = cartHalfHeight * 0.3f;
+
+    for (int i = 0; i < SEAT_COUNT; ++i) {
+        seats[i].occupied = false;
+        seats[i].beltOn = false;
+
+        // centri: 0.5, 1.5, 2.5, ... , 7.5
+        seats[i].localX = seatsLeftX + seatStep * (0.5f + i);
+        seats[i].localY = seatsY;
+    }
 
     unsigned int VAO;
     unsigned int VBO;
@@ -366,6 +422,34 @@ int main()
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
     glEnableVertexAttribArray(1);
 
+    // putnik malo uzi od razmaka izmedju sjedista
+    float passengerHalfWidth = seatStep * 0.6f;
+    float passengerHalfHeight = cartHalfHeight * 0.45f;
+
+    float passengerVertices[] = {
+        -passengerHalfWidth,  passengerHalfHeight, 0.0f, 1.0f, // gornje lijevo
+        -passengerHalfWidth, -passengerHalfHeight, 0.0f, 0.0f, // donje lijevo
+         passengerHalfWidth, -passengerHalfHeight, 1.0f, 0.0f, // donje desno
+         passengerHalfWidth,  passengerHalfHeight, 1.0f, 1.0f  // gornje desno
+    };
+
+    unsigned int VAOPassenger;
+    unsigned int VBOPassenger;
+    glGenVertexArrays(1, &VAOPassenger);
+    glGenBuffers(1, &VBOPassenger);
+
+    glBindVertexArray(VAOPassenger);
+    glBindBuffer(GL_ARRAY_BUFFER, VBOPassenger);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(passengerVertices), passengerVertices, GL_STATIC_DRAW);
+
+    // pozicija
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    // tex koordinate
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+
 
     // postavljanje boje pozadine
     glClearColor(0.68f, 0.85f, 0.90f, 1.0f); 
@@ -389,6 +473,22 @@ int main()
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
             glfwSetWindowShouldClose(window, true);
         }
+
+        // SPACE: dodavanje novog putnika (edge detection)
+        int spaceState = glfwGetKey(window, GLFW_KEY_SPACE);
+        if (spaceState == GLFW_PRESS && !spaceWasPressedLastFrame) {
+            // pronadji prvo slobodno sjediste (naprijed ka nazad)
+            // punimo od pocetka vagona ka nazad
+            for (int i = SEAT_COUNT - 1; i >= 0; --i) {
+                if (!seats[i].occupied) {
+                    seats[i].occupied = true;
+                    seats[i].beltOn = false;
+                    break;
+                }
+            }
+        }
+        spaceWasPressedLastFrame = (spaceState == GLFW_PRESS);
+
 
         // pomjeranje kvadrata - skalirano deltaTime-om 
         float speed = 0.5f; // jedinica u sekundi
@@ -438,6 +538,36 @@ int main()
         glBindVertexArray(VAO);    // koristi VAO sa kvadratom
 
         glDrawArrays(GL_TRIANGLE_FAN, 0, 4); // 4 verteksa kao kvadrat
+
+        // crtanje putnika u sjedistima 
+        glUseProgram(basicShader);
+        glBindVertexArray(VAOPassenger);
+
+        for (int i = 0; i < SEAT_COUNT; ++i) {
+            if (!seats[i].occupied) continue;
+
+            // svako sjediste ima svoju lokalnu poziciju u odnosu na vagon
+            float worldX = offsetX + seats[i].localX;
+            float worldY = offsetY + seats[i].localY;
+
+            // prvo crtamo putnika
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, passengerTexture);
+
+            glUniform1f(uAlphaLocation, 1.0f);        // pun prikaz
+            glUniform2f(uOffsetLocation, worldX, worldY);
+
+            glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+
+            // ako je pojas zakacen, crtamo pojaseve preko putnika
+            if (seats[i].beltOn) {
+                glBindTexture(GL_TEXTURE_2D, beltTexture);
+                // isti offset, isti VAO, samo druga tekstura
+                glUniform1f(uAlphaLocation, 1.0f);
+                glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+            }
+        }
+
 
         // crtanje nameplate-a
         glActiveTexture(GL_TEXTURE0);
