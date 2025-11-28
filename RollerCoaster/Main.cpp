@@ -42,6 +42,12 @@ int main()
     float offsetY = 0.0f;
     
     bool spaceWasPressedLastFrame = false;
+    bool leftMouseWasPressedLastFrame = false;
+    bool enterWasPressedLastFrame = false;
+
+    // za kasnije (kretanje), za sad samo flag
+    bool isRideRunning = false;
+
     // podaci o 8 sjedista u vagonu
     const int SEAT_COUNT = 8;
     Seat seats[SEAT_COUNT];
@@ -488,6 +494,34 @@ int main()
             }
         }
         spaceWasPressedLastFrame = (spaceState == GLFW_PRESS);
+
+        // --- Lijevi klik misa: vezivanje/otkopcavanje pojasa na pojedinacnom sjedistu ---
+        double mouseX, mouseY;
+        glfwGetCursorPos(window, &mouseX, &mouseY);
+
+        // pretvaranje koordinata misa u NDC (-1,1)
+        float mouseNdcX = (float)((mouseX / screenWidth) * 2.0 - 1.0);
+        float mouseNdcY = (float)(1.0 - (mouseY / screenHeight) * 2.0);
+
+        int leftState = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT);
+        if (leftState == GLFW_PRESS && !leftMouseWasPressedLastFrame) {
+            // prodji kroz sva sjedista i vidi da li je klik unutar "kvadrata putnika"
+            for (int i = 0; i < SEAT_COUNT; ++i) {
+                if (!seats[i].occupied) continue; // ako nema putnika, nista
+
+                float cx = offsetX + seats[i].localX;
+                float cy = offsetY + seats[i].localY;
+
+                if (mouseNdcX >= cx - passengerHalfWidth && mouseNdcX <= cx + passengerHalfWidth &&
+                    mouseNdcY >= cy - passengerHalfHeight && mouseNdcY <= cy + passengerHalfHeight) {
+
+                    // toggle pojasa za tog putnika
+                    seats[i].beltOn = !seats[i].beltOn;
+                    break; // samo jedan putnik po kliku
+                }
+            }
+        }
+        leftMouseWasPressedLastFrame = (leftState == GLFW_PRESS);
 
 
         // pomjeranje kvadrata - skalirano deltaTime-om 
