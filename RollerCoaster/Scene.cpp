@@ -9,11 +9,6 @@
 static float offsetX = 0.0f;
 static float offsetY = 0.0f;
 
-static bool spaceWasPressedLastFrame = false;
-static bool leftMouseWasPressedLastFrame = false;
-static bool enterWasPressedLastFrame = false;
-
-// za kasnije (kretanje), za sad samo flag
 static bool isRideRunning = false;
 
 // podaci o 8 sjedista u vagonu
@@ -50,7 +45,7 @@ static int uTexLocation = -1;
 static int uAlphaLocation = -1;
 
 // VAO i VBO
-static unsigned int VAO;           // vagon
+static unsigned int VAO;           // vagon (segment jednog sjedista)
 static unsigned int VBO;
 static unsigned int VAOTrack;      // pruga
 static unsigned int VBOTrack;
@@ -74,7 +69,7 @@ static float wagonSegmentHalfWidth = 0.0f;
 static float wagonSegmentHalfHeight = 0.0f;
 
 // geometrija putnika
-// putnik malo uzi od razmaka izmedju sjedista
+// putnik malo uzi od vagona
 static float passengerHalfWidth = 0.0f;
 static float passengerHalfHeight = 0.0f;
 static float seatStepGlobal = 0.0f;
@@ -91,6 +86,16 @@ static float trackVertices[(TRACK_SEGMENTS + 1) * 2];
 static const int SUPPORT_COUNT = 35;
 static float supportVertices[SUPPORT_COUNT * 4];
 // svaki stub ima 2 verteksa: (x_top, y_top), (x_top, y_bottom) => 4 floats
+
+// ------------------ STANJE VOZNJE PO PRUZI ------------------
+
+// parametar duz staze [0,1]
+static float trackParam = 0.0f;
+// "brzina" pomjeranja po parametru
+static float rideSpeed = 0.0f;
+// ubrzanje i maksimalna brzina
+static const float RIDE_ACCEL = 0.08f;
+static const float RIDE_MAX_SPEED = 0.25f;
 
 // ------------------ POMOCNE FUNKCIJE ------------------
 
@@ -117,6 +122,13 @@ static float bezierY(float t, float p0, float p1, float p2, float p3) {
     return u * u * u * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t * p3;
 }
 
+// callback funkcije i pomocne za voznju (prototipi)
+static void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
+static void MouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
+static bool AreAllOccupiedSeatsBelted();
+static void TryStartRide();
+static void SetCartToTrack(float param);
+
 // ------------------  InitScene ------------------
 
 void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
@@ -127,6 +139,10 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
 
     // faktor potreban za dobijanje kvadrata na pravouaonom ekranu (fullscreen mod)
     aspect = static_cast<float>(screenHeightGlobal) / static_cast<float>(screenWidthGlobal);
+
+    // vezivanje callback funkcija za tastaturu i mis
+    glfwSetKeyCallback(window, KeyCallback);
+    glfwSetMouseButtonCallback(window, MouseButtonCallback);
 
     // ucitavanje custom kursora
     GLFWcursor* customCursor = loadImageToCursor("res/cursor2.png");
@@ -184,7 +200,7 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
 
     // ----------------- Geometrija vozila + 8 sjedista -----------------
 
-// visina vagona na ekranu
+    // visina vagona na ekranu
     cartHalfHeight = 0.21f;
 
     // faktor koliko je sirina veca od visine (npr. 3x)
@@ -231,8 +247,9 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
     // visina kvadrata (po y), u NDC
     wagonSegmentHalfHeight = cartHalfHeight * 0.45f;
 
-    // da kvadrat stvarno izgleda kvadratno na pravougaonom ekranu, sirinu skaliramo sa aspect-om
+    // sirina vezana za razmak izmedju sjedista
     wagonSegmentHalfWidth = seatStepGlobal * 0.7f;
+
     // x, y, u, v 
     float wagonVertices[] = {
         -wagonSegmentHalfWidth,  wagonSegmentHalfHeight, 0.0f, 1.0f,
@@ -259,7 +276,7 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
     // ------------------  VAO/VBO za prugu rolerkostera (Bezier sa C1 kontinuitetom) ------------------
 
     // kontrolne tacke za cijelu stazu
-    // definisanje unaprijed, osiguravanje C1 kontinuet
+    // definisanje unaprijed, osiguravanje C1 kontinuiteta
 
     // y-koordinate kljucnih tacaka (P0 i P3 za svaki segment)
     float y_start = -0.5f;      // pocetak staze (lijevo)
@@ -285,11 +302,9 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
         1.0f   // t=1.0 -> x=1.0
     };
 
-    // kljucne y koordinate za C1 kontinuitet
-    // ove P0 i P3 ce biti spojevi segmenata
-    // P1_next = P0_next + (P0_next - P2_current)
-
     // pocetne tacke
+    // kljucne y koordinate za C1 kontinuitet
+    // P0 i P3 ce biti spojevi segmenata
     float current_P0 = y_start;
     float current_P1 = y_start + 0.05f; // blago nagore, glatki start
     float current_P2 = y_start + 0.15f; // dalje od P1 za sirinu
@@ -297,7 +312,9 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
 
     for (int i = 0; i <= TRACK_SEGMENTS; ++i) {
         float t = i / static_cast<float>(TRACK_SEGMENTS); // t_global od 0 do 1
-        float x = -1.0f + 2.0f * t;
+        float xMin = -0.85f;
+        float xMax = 0.85f;
+        float x = xMin + (xMax - xMin) * t;
         float y;
 
         // segment 1: start -> prvi brijeg (y_start do y_peak1)
@@ -457,17 +474,27 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
     glEnableVertexAttribArray(1);
 
+    // na pocetku programa vozilo stoji na pocetku pruge
+    trackParam = 0.0f;
+    rideSpeed = 0.0f;
+    isRideRunning = false;
+    SetCartToTrack(trackParam);
+
     // vracamo na neki default VAO
     glBindVertexArray(0);
 }
 
-// ------------------  UpdateScene ------------------
+// ------------------  KeyCallback ------------------
 
-void UpdateScene(GLFWwindow* window, double deltaTime)
+static void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
-    // SPACE: dodavanje novog putnika (edge detection)
-    int spaceState = glfwGetKey(window, GLFW_KEY_SPACE);
-    if (spaceState == GLFW_PRESS && !spaceWasPressedLastFrame) {
+    // reagujemo samo na pritisak (ne i na pustanje)
+    if (action != GLFW_PRESS)
+        return;
+
+    switch (key)
+    {
+    case GLFW_KEY_SPACE:
         // pronadji prvo slobodno sjediste (naprijed ka nazad)
         // punimo od pocetka vagona ka nazad
         for (int i = SEAT_COUNT - 1; i >= 0; --i) {
@@ -477,10 +504,38 @@ void UpdateScene(GLFWwindow* window, double deltaTime)
                 break;
             }
         }
-    }
-    spaceWasPressedLastFrame = (spaceState == GLFW_PRESS);
+        break;
 
-    // --- Lijevi klik misa: vezivanje/otkopcavanje pojasa na pojedinacnom sjedistu ---
+    case GLFW_KEY_ENTER:
+        // pokusaj da pokrenes voznju
+        TryStartRide();
+        break;
+
+        // tasteri 1-8 ce kasnije simulirati signal da se nekom putniku slosilo
+    case GLFW_KEY_1:
+    case GLFW_KEY_2:
+    case GLFW_KEY_3:
+    case GLFW_KEY_4:
+    case GLFW_KEY_5:
+    case GLFW_KEY_6:
+    case GLFW_KEY_7:
+    case GLFW_KEY_8:
+        // TODO: prinudno zaustavljanje
+        break;
+
+    default:
+        break;
+    }
+}
+
+// ------------------  MouseButtonCallback ------------------
+
+static void MouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
+{
+    if (button != GLFW_MOUSE_BUTTON_LEFT || action != GLFW_PRESS)
+        return;
+
+    // pozicija misa u trenutku klika
     double mouseX, mouseY;
     glfwGetCursorPos(window, &mouseX, &mouseY);
 
@@ -488,41 +543,129 @@ void UpdateScene(GLFWwindow* window, double deltaTime)
     float mouseNdcX = (float)((mouseX / screenWidthGlobal) * 2.0 - 1.0);
     float mouseNdcY = (float)(1.0 - (mouseY / screenHeightGlobal) * 2.0);
 
-    int leftState = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT);
-    if (leftState == GLFW_PRESS && !leftMouseWasPressedLastFrame) {
-        // prodji kroz sva sjedista i vidi da li je klik unutar "kvadrata putnika"
-        for (int i = 0; i < SEAT_COUNT; ++i) {
-            if (!seats[i].occupied) continue; // ako nema putnika, nista
+    // prodji kroz sva sjedista i vidi da li je klik unutar "kvadrata putnika"
+    for (int i = 0; i < SEAT_COUNT; ++i) {
+        if (!seats[i].occupied) continue; // ako nema putnika, nista
 
-            float cx = offsetX + seats[i].localX;
-            float cy = offsetY + seats[i].localY;
+        float cx = offsetX + seats[i].localX;
+        float cy = offsetY + seats[i].localY;
 
-            if (mouseNdcX >= cx - passengerHalfWidth && mouseNdcX <= cx + passengerHalfWidth &&
-                mouseNdcY >= cy - passengerHalfHeight && mouseNdcY <= cy + passengerHalfHeight) {
+        if (mouseNdcX >= cx - passengerHalfWidth && mouseNdcX <= cx + passengerHalfWidth &&
+            mouseNdcY >= cy - passengerHalfHeight && mouseNdcY <= cy + passengerHalfHeight) {
 
-                // toggle pojasa za tog putnika
-                seats[i].beltOn = !seats[i].beltOn;
-                break; // samo jedan putnik po kliku
+            // toggle pojasa za tog putnika
+            seats[i].beltOn = !seats[i].beltOn;
+            break; // samo jedan putnik po kliku
+        }
+    }
+}
+
+// ------------------  Pomocne funkcije za voznju ------------------
+
+// da li su sva zauzeta sjedista vezana
+static bool AreAllOccupiedSeatsBelted()
+{
+    bool anyOccupied = false;
+
+    for (int i = 0; i < SEAT_COUNT; ++i) {
+        if (seats[i].occupied) {
+            anyOccupied = true;
+            if (!seats[i].beltOn) {
+                return false; // neko sjedi bez pojasa -> ne smije da krene
             }
         }
     }
-    leftMouseWasPressedLastFrame = (leftState == GLFW_PRESS);
 
-    // pomjeranje kvadrata - skalirano deltaTime-om 
-    float speed = 0.5f; // jedinica u sekundi
-    float velocity = speed * static_cast<float>(deltaTime);
+    // ne krece ako je prazan
+    return anyOccupied;
+}
 
-    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
-        offsetX -= velocity; // lijevo
+// pokusaj da zapocnes voznju
+static void TryStartRide()
+{
+    if (isRideRunning)
+        return; // vec se krece
+
+    if (!AreAllOccupiedSeatsBelted())
+        return; // uslov nije ispunjen
+
+    // krecemo od pocetka staze, sa nule brzine
+    trackParam = 0.0f;
+    rideSpeed = 0.0f;
+    isRideRunning = true;
+
+    SetCartToTrack(trackParam);
+}
+
+// postavi offsetX/offsetY na tacku na stazi definisanu parametrom [0,1]
+static void SetCartToTrack(float param)
+{
+    if (param < 0.0f) param = 0.0f;
+    if (param > 1.0f) param = 1.0f;
+
+    float fIndex = param * (TRACK_POINT_COUNT - 1);
+    int i0 = (int)std::floor(fIndex);
+    int i1 = i0 + 1;
+    if (i1 >= TRACK_POINT_COUNT) i1 = TRACK_POINT_COUNT - 1;
+
+    float localT = fIndex - (float)i0;
+
+    float x0 = trackVertices[i0 * 2 + 0];
+    float y0 = trackVertices[i0 * 2 + 1];
+    float x1 = trackVertices[i1 * 2 + 0];
+    float y1 = trackVertices[i1 * 2 + 1];
+
+    // linearna interpolacija izmedju dvije susjedne tacke
+    float x = (1.0f - localT) * x0 + localT * x1;
+    float y = (1.0f - localT) * y0 + localT * y1;
+
+    offsetX = x;
+    offsetY = y; //+wagonSegmentHalfHeight * 0.2f;
+}
+
+// ------------------  UpdateScene ------------------
+
+void UpdateScene(GLFWwindow* window, double deltaTime)
+{
+    // rucno pomjeranje kvadrata - skalirano deltaTime-om 
+    if (!isRideRunning) {
+        float speed = 0.5f; // jedinica u sekundi
+        float velocity = speed * static_cast<float>(deltaTime);
+
+        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
+            offsetX -= velocity; // lijevo
+        }
+        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
+            offsetX += velocity; // desno
+        }
+        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
+            offsetY += velocity; // gore
+        }
+        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
+            offsetY -= velocity; // dole
+        }
     }
-    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
-        offsetX += velocity; // desno
-    }
-    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
-        offsetY += velocity; // gore
-    }
-    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
-        offsetY -= velocity; // dole
+
+    // automatsko kretanje po pruzi
+    if (isRideRunning)
+    {
+        // jednostavno ubrzanje dok ne dostignemo maksimalnu brzinu
+        rideSpeed += RIDE_ACCEL * (float)deltaTime;
+        if (rideSpeed > RIDE_MAX_SPEED)
+            rideSpeed = RIDE_MAX_SPEED;
+
+        // pomjeranje po parametru staze
+        trackParam += rideSpeed * (float)deltaTime;
+
+        // za sada: kad dodjemo do kraja staze (t=1), zaustavimo voznju
+        if (trackParam >= 1.0f) {
+            trackParam = 1.0f;
+            isRideRunning = false;
+            rideSpeed = 0.0f;
+        }
+
+        // postavi offsetX/offsetY prema trenutnom parametru
+        SetCartToTrack(trackParam);
     }
 }
 
