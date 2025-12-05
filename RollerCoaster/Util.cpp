@@ -1,4 +1,4 @@
-#include "Util.h";
+#include "Util.h"
 
 #define _CRT_SECURE_NO_WARNINGS
 #include <fstream>
@@ -157,4 +157,10 @@ GLFWcursor* loadImageToCursor(const char* filePath) {
         return nullptr;
 
     }
+}
+
+int endProgram(std::string message) {
+    std::cout << message << std::endl;
+    glfwTerminate();
+    return -1;
 }
