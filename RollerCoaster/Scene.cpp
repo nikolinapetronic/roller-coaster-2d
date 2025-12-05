@@ -69,6 +69,10 @@ static float cartShapeRatio = 1.7f;
 // sirina korigovana aspect-om i oblikom
 static float cartHalfWidth = 0.0f;
 
+// geometrija malog kvadrata vozila (segment ispod jednog sjedista)
+static float wagonSegmentHalfWidth = 0.0f;
+static float wagonSegmentHalfHeight = 0.0f;
+
 // geometrija putnika
 // putnik malo uzi od razmaka izmedju sjedista
 static float passengerHalfWidth = 0.0f;
@@ -135,7 +139,7 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
     }
 
     // ucitavanje teksture vagona
-    preprocessTexture(wagonTexture, "res/cart1.png");
+    preprocessTexture(wagonTexture, "res/cart_one.png");
 
     // ucitavanje teksture nameplatea
     preprocessTexture(nameplateTexture, "res/nameplate1.png");
@@ -178,8 +182,9 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
         std::cout << "uAlpha nije pronadjen u shaderu!" << std::endl;
     }
 
-    // kreiranje VAO i VBO za vagon
-    // visina vagona na ekranu
+    // ----------------- Geometrija vozila + 8 sjedista -----------------
+
+// visina vagona na ekranu
     cartHalfHeight = 0.21f;
 
     // faktor koliko je sirina veca od visine (npr. 3x)
@@ -187,29 +192,6 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
 
     // sirina korigovana aspect-om i oblikom
     cartHalfWidth = cartHalfHeight * cartShapeRatio * aspect;
-
-    // x, y, u, v  (i dalje cijela tekstura preko pravougaonika)
-    float vertices[] = {
-        -cartHalfWidth,  cartHalfHeight, 0.0f, 1.0f,
-        -cartHalfWidth, -cartHalfHeight, 0.0f, 0.0f,
-         cartHalfWidth, -cartHalfHeight, 1.0f, 0.0f,
-         cartHalfWidth,  cartHalfHeight, 1.0f, 1.0f
-    };
-
-    glGenVertexArrays(1, &VAO);
-    glGenBuffers(1, &VBO);
-
-    glBindVertexArray(VAO);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-
-    // pozicija (x, y)
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-
-    // tex koordinate (u, v)
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
-    glEnableVertexAttribArray(1);
 
     // ----------------- Inicijalizacija 8 sjedista (1 red) -----------------
     float innerMargin = 0.25f;
@@ -242,6 +224,37 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
         seats[i].localX = seatsLeftX + seatStep * (0.5f + i);
         seats[i].localY = seatsY;
     }
+
+    // ----------------- Geometrija 8 malih kvadrata vozila -----------------
+    // svaki kvadrat ce biti centriran ispod jednog sjedista
+
+    // visina kvadrata (po y), u NDC
+    wagonSegmentHalfHeight = cartHalfHeight * 0.45f;
+
+    // da kvadrat stvarno izgleda kvadratno na pravougaonom ekranu, sirinu skaliramo sa aspect-om
+    wagonSegmentHalfWidth = seatStepGlobal * 0.7f;
+    // x, y, u, v 
+    float wagonVertices[] = {
+        -wagonSegmentHalfWidth,  wagonSegmentHalfHeight, 0.0f, 1.0f,
+        -wagonSegmentHalfWidth, -wagonSegmentHalfHeight, 0.0f, 0.0f,
+         wagonSegmentHalfWidth, -wagonSegmentHalfHeight, 1.0f, 0.0f,
+         wagonSegmentHalfWidth,  wagonSegmentHalfHeight, 1.0f, 1.0f
+    };
+
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+
+    glBindVertexArray(VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(wagonVertices), wagonVertices, GL_STATIC_DRAW);
+
+    // pozicija (x, y)
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    // tex koordinate (u, v)
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+    glEnableVertexAttribArray(1);
 
     // ------------------  VAO/VBO za prugu rolerkostera (Bezier sa C1 kontinuitetom) ------------------
 
@@ -418,9 +431,9 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
     glEnableVertexAttribArray(1);
 
-    // putnik malo uzi od razmaka izmedju sjedista
-    passengerHalfWidth = seatStep * 0.6f;
-    passengerHalfHeight = cartHalfHeight * 0.45f;
+    // putnik malo uzi i nizi od samog vagona
+    passengerHalfWidth = wagonSegmentHalfWidth * 0.7f;
+    passengerHalfHeight = wagonSegmentHalfHeight * 0.6f;
 
     float passengerVertices[] = {
         -passengerHalfWidth,  passengerHalfHeight, 0.0f, 1.0f, // gornje lijevo
@@ -537,17 +550,23 @@ void RenderScene()
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, wagonTexture);
 
-    // crtanje kvadrata za provjeru
+    // crtanje vozila: 8 malih kvadrata, po jedan ispod svakog sjedista
     glUseProgram(basicShader); // koristi shader 
 
     // vagon je potpuno neprovidan
     glUniform1f(uAlphaLocation, 1.0f);
 
-    glUniform2f(uOffsetLocation, offsetX, offsetY); // slanje offseta u shader
+    glBindVertexArray(VAO);    // koristi VAO sa jednim malim kvadratom
 
-    glBindVertexArray(VAO);    // koristi VAO sa kvadratom
+    for (int i = 0; i < SEAT_COUNT; ++i) {
+        // svaki segment ce biti centriran oko istih lokalnih koordinata kao sjediste
+        float worldX = offsetX + seats[i].localX;
+        float worldY = offsetY + seats[i].localY;
 
-    glDrawArrays(GL_TRIANGLE_FAN, 0, 4); // 4 verteksa kao kvadrat
+        glUniform2f(uOffsetLocation, worldX, worldY); // slanje offseta u shader
+        glDrawArrays(GL_TRIANGLE_FAN, 0, 4);          // 4 verteksa kao kvadrat
+    }
+
 
     // crtanje putnika u sjedistima 
     glUseProgram(basicShader);
