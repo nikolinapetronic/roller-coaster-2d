@@ -11,9 +11,9 @@ const int RC_TRACK_POINT_COUNT = RC_TRACK_SEGMENTS + 1;
 
 // brzina ubrzavanja i maksimalna brzina voznje
 static const float RIDE_ACCEL = 0.02f;
-static const float RIDE_MAX_SPEED = 0.15f;
+static const float RIDE_MAX_SPEED = 0.15f; 
 
-static const float RIDE_SLOPE_ACCEL = 1.5f;   // koliko jako nagib utice na ubrzanje
+static const float RIDE_SLOPE_ACCEL = 1.2f;   // koliko jako nagib utice na ubrzanje
 static const float RIDE_MIN_SPEED = 0.01f;  // minimalna brzina koja se smatra kretanjem
 static const float RIDE_MAX_SLOPE_SPEED = 0.60f; // apsolutni max, i nizbrdo
 
@@ -24,6 +24,8 @@ static float g_trackXMax = 0.9f;
 
 // niz verteksa za prugu (x,y) -> 2 float-a po tacki
 static float g_trackVertices[RC_TRACK_POINT_COUNT * 2];
+static float g_trackArcLengths[RC_TRACK_POINT_COUNT];
+static float g_totalTrackLength = 0.0f;
 
 // trenutno stanje voznje po parametru (0-1)
 static float g_trackParam = 0.0f;
@@ -31,13 +33,12 @@ static float g_rideSpeed = 0.0f;
 static float g_cartAngle = 0.0f;
 static bool  g_isRideRunning = false;
 
-// parametri rasporeda sjedista po pruzi
-static float g_seatParamStep = 0.0f;   // razmak u parametru izmedju sjedista
-static float g_trainParamLen = 0.0f;   // ukupna duzina kompozicije u param prostoru
-static float g_trackParamStart = 0.0f; // pocetna pozicija tako da svi vagoni stanu na prugu
-static float g_trackParamEnd = 1.0f; // kraj voznje
-
 static int   g_seatCount = 0;
+static float g_seatStepNDC = 0.0f;  // razmak sjedista u NDC (po X)
+static float g_seatStepLen = 0.0f;  // realna duzina izmedju sjedista po stazi
+static float g_trainLen = 0.0f;  // realna duzina cijele kompozicije
+static float g_trackParamStart = 0.0f;
+static float g_trackParamEnd = 1.0f;
 
 // ------------------ POMOCNE FUNKCIJE ---------------------------
 
@@ -57,7 +58,6 @@ static void SampleTrack(float param, float& outX, float& outY, float& outAngle)
     if (param < 0.0f) param = 0.0f;
     if (param > 1.0f) param = 1.0f;
 
-    // racunamo indeks u discretiziranoj pruzi
     float fIndex = param * (RC_TRACK_POINT_COUNT - 1);
     int i0 = (int)std::floor(fIndex);
     int i1 = i0 + 1;
@@ -95,9 +95,45 @@ static void SampleTrack(float param, float& outX, float& outY, float& outAngle)
     outAngle = angle;
 }
 
+// nalazi parametar za datu DUZINU od pocetka staze (0 je pocetak)
+static float GetParamAtArcLengthFromStart(float targetLen)
+{
+    if (targetLen <= 0.0f)            return 0.0f;
+    if (targetLen >= g_totalTrackLength) return 1.0f;
+
+    int i = 1;
+    while (i < RC_TRACK_POINT_COUNT && g_trackArcLengths[i] < targetLen)
+        ++i;
+
+    int i0 = i - 1;
+    int i1 = i;
+    if (i1 >= RC_TRACK_POINT_COUNT) i1 = RC_TRACK_POINT_COUNT - 1;
+
+    float l0 = g_trackArcLengths[i0];
+    float l1 = g_trackArcLengths[i1];
+    float t = (l1 > l0) ? (targetLen - l0) / (l1 - l0) : 0.0f;
+
+    return (i0 + t) / (float)(RC_TRACK_POINT_COUNT - 1);
+}
+
+// vraca parametar koji je "backDistance" unazad od currentParam po REALNOJ duzini
+static float GetParamAtArcLengthBackwards(float currentParam, float backDistance)
+{
+    // trenutna duzina od pocetka
+    float currentIndexF = currentParam * (RC_TRACK_POINT_COUNT - 1);
+    int   currentIndex = (int)std::floor(currentIndexF);
+    if (currentIndex < 0) currentIndex = 0;
+    if (currentIndex >= RC_TRACK_POINT_COUNT) currentIndex = RC_TRACK_POINT_COUNT - 1;
+
+    float currentLength = g_trackArcLengths[currentIndex];
+    float targetLen = currentLength - backDistance;
+    if (targetLen < 0.0f) targetLen = 0.0f;
+
+    return GetParamAtArcLengthFromStart(targetLen);
+}
+
 // ------------------------ API ---------------------------------
 
-// inicijalizacija logike kretanja i generisanje pruge
 void RC_InitMotion(float trackXMin,
     float trackXMax,
     float seatStep,
@@ -106,19 +142,9 @@ void RC_InitMotion(float trackXMin,
     g_trackXMin = trackXMin;
     g_trackXMax = trackXMax;
     g_seatCount = seatCount;
+    g_seatStepNDC = seatStep;
 
-    // parametarski razmak izmedju sjedista (normalizovano na sirinu pruge)
-    float trackWidth = g_trackXMax - g_trackXMin;
-    g_seatParamStep = seatStep / trackWidth;
-    g_trainParamLen = (g_seatCount - 1) * g_seatParamStep;
-
-    // start pozicija da cijeli voz stane na prugu
-    g_trackParamStart = g_trainParamLen;
-    g_trackParamEnd = 1.0f;
-
-    // ------------------ generisanje pruge ----------------------
-    // vise Bezier segmenata koji formiraju brda i doline
-
+    // --------- generisanje pruge i akumulisane duzine ---------
     float y_start = -0.5f;
     float y_mid_valley1 = -0.3f;
     float y_peak1 = 0.2f;
@@ -145,9 +171,12 @@ void RC_InitMotion(float trackXMin,
     float current_P2 = y_start + 0.15f;
     float current_P3;
 
-    // generisanje pruge
-    for (int i = 0; i <= RC_TRACK_SEGMENTS; ++i) {
-        float t = i / static_cast<float>(RC_TRACK_SEGMENTS);
+    float prevX = 0.0f, prevY = 0.0f;
+    g_totalTrackLength = 0.0f;
+
+    for (int i = 0; i <= RC_TRACK_SEGMENTS; ++i)
+    {
+        float t = i / (float)RC_TRACK_SEGMENTS;
         float x = g_trackXMin + (g_trackXMax - g_trackXMin) * t;
         float y;
 
@@ -209,16 +238,42 @@ void RC_InitMotion(float trackXMin,
         // upisujemo tacku u globalni niz verteksa
         g_trackVertices[i * 2 + 0] = x;
         g_trackVertices[i * 2 + 1] = y;
+
+        if (i == 0) {
+            g_trackArcLengths[i] = 0.0f;
+            prevX = x;
+            prevY = y;
+        }
+        else {
+            float dx = x - prevX;
+            float dy = y - prevY;
+            float segLen = std::sqrt(dx * dx + dy * dy);
+            g_totalTrackLength += segLen;
+            g_trackArcLengths[i] = g_totalTrackLength;
+            prevX = x;
+            prevY = y;
+        }
     }
 
-    // podesavamo pocetno stanje voznje
+    // --------- razmak sjedista po realnoj duzini ----------
+    float ndcTrackWidth = g_trackXMax - g_trackXMin;
+    float seatStepNorm = g_seatStepNDC / ndcTrackWidth;      // u odnosu na sirinu po X
+    g_seatStepLen = seatStepNorm * g_totalTrackLength;  // projekcija na realnu stazu
+    g_trainLen = g_seatStepLen * (g_seatCount - 1);  // ukupna duzina kompozicije
+
+    // zadnji vagon (seatIndex 0) -> pocetak pruge (duzina = 0)
+    // prvi vagon (seatIndex 7)   -> na duzini g_trainLen od pocetka
+    float frontLen = g_trainLen;
+    g_trackParamStart = GetParamAtArcLengthFromStart(frontLen);
+    g_trackParamEnd = 1.0f;
     g_trackParam = g_trackParamStart;
+
     g_rideSpeed = 0.0f;
     g_isRideRunning = false;
     g_cartAngle = 0.0f;
 }
 
-// jednostavno vracamo stanje
+// stanje
 bool RC_IsRideRunning()
 {
     return g_isRideRunning;
@@ -251,16 +306,30 @@ void RC_Update(double deltaTime)
     if (g_rideSpeed > RIDE_MAX_SPEED)
         g_rideSpeed = RIDE_MAX_SPEED;
 
-    // nagib pruge na trenutnom parametru
+    // --- SMOOTH NAGIBA OKO TRENUTNE POZICIJE -----
     float xCurr, yCurr, angleCurr;
     SampleTrack(g_trackParam, xCurr, yCurr, angleCurr);
 
-    // angleCurr > 0  -> uzbrdo
-    // angleCurr < 0  -> nizbrdo
-    //
-    // koristimo sin(ugla) kao projekciju gravitacije duz pruge
-    // po fizici bi bilo -g * sin(theta)
-    float slopeFactor = std::sin(angleCurr);
+    float xA, yA, angleAhead;
+    float xB, yB, angleBehind;
+
+    const float paramOffset = 0.002f; 
+
+    // malo ispred
+    float paramAhead = g_trackParam + paramOffset;
+    if (paramAhead > 1.0f) paramAhead = 1.0f;
+    SampleTrack(paramAhead, xA, yA, angleAhead);
+
+    // malo iza
+    float paramBehind = g_trackParam - paramOffset;
+    if (paramBehind < 0.0f) paramBehind = 0.0f;
+    SampleTrack(paramBehind, xB, yB, angleBehind);
+
+    // prosjek tri ugla -> zagladjen nagib
+    float smoothAngle = (angleBehind + angleCurr + angleAhead) / 3.0f;
+
+    // koristimo zagladjeni ugao umjesto "skacuceg"
+    float slopeFactor = std::sin(smoothAngle);
 
     // nizbrdo: slopeFactor < 0 -> -slopeFactor > 0 -> ubrzavamo
     // uzbrdo: slopeFactor > 0 -> -slopeFactor < 0 -> usporavamo
@@ -282,7 +351,7 @@ void RC_Update(double deltaTime)
         g_isRideRunning = false;
     }
 
-    // uzimamo ugao za crtanje vagona
+    // ugao za crtanje vagona
     float x, y, angle;
     SampleTrack(g_trackParam, x, y, angle);
     g_cartAngle = angle;
@@ -294,11 +363,12 @@ void RC_GetSeatBasePosAndAngle(int seatIndex,
     float& sy,
     float& angle)
 {
-    // sjedista se racunaju od posljednjeg ka prvom
+    // seatIndex 0  -> zadnji vagon (najblize pocetku)
+    // seatIndex 7  -> prvi vagon (naprijed)
     int seatOrderIndex = g_seatCount - 1 - seatIndex;
-
     // sjediste je pomjereno unazad po parametru
-    float seatParam = g_trackParam - seatOrderIndex * g_seatParamStep;
+    float backDist = seatOrderIndex * g_seatStepLen;
+    float seatParam = GetParamAtArcLengthBackwards(g_trackParam, backDist);
 
     // uzorkujemo tacku na pruzi
     SampleTrack(seatParam, sx, sy, angle);
