@@ -13,6 +13,10 @@ const int RC_TRACK_POINT_COUNT = RC_TRACK_SEGMENTS + 1;
 static const float RIDE_ACCEL = 0.02f;
 static const float RIDE_MAX_SPEED = 0.15f;
 
+static const float RIDE_SLOPE_ACCEL = 1.5f;   // koliko jako nagib utice na ubrzanje
+static const float RIDE_MIN_SPEED = 0.01f;  // minimalna brzina koja se smatra kretanjem
+static const float RIDE_MAX_SLOPE_SPEED = 0.60f; // apsolutni max, i nizbrdo
+
 // ------------------ GLOBALNO STANJE MODULA ------------------
 // opseg pruge po x-osi (NDC)
 static float g_trackXMin = -0.9f;
@@ -236,18 +240,39 @@ void RC_TryStartRide(bool canStart)
     g_isRideRunning = true;
 }
 
-// glavni update 
+// glavni update
 void RC_Update(double deltaTime)
 {
     if (!g_isRideRunning)
         return;
 
-    // ubrzanje voza
+    // osnovno ubrzavanje: iz mirovanja do "krstarece" brzine na ravnom
     g_rideSpeed += RIDE_ACCEL * (float)deltaTime;
     if (g_rideSpeed > RIDE_MAX_SPEED)
         g_rideSpeed = RIDE_MAX_SPEED;
 
-    // napredovanje po pruzi
+    // nagib pruge na trenutnom parametru
+    float xCurr, yCurr, angleCurr;
+    SampleTrack(g_trackParam, xCurr, yCurr, angleCurr);
+
+    // angleCurr > 0  -> uzbrdo
+    // angleCurr < 0  -> nizbrdo
+    //
+    // koristimo sin(ugla) kao projekciju gravitacije duz pruge
+    // po fizici bi bilo -g * sin(theta)
+    float slopeFactor = std::sin(angleCurr);
+
+    // nizbrdo: slopeFactor < 0 -> -slopeFactor > 0 -> ubrzavamo
+    // uzbrdo: slopeFactor > 0 -> -slopeFactor < 0 -> usporavamo
+    g_rideSpeed += RIDE_SLOPE_ACCEL * (-slopeFactor) * (float)deltaTime;
+
+    // ogranicenja brzine
+    if (g_rideSpeed < RIDE_MIN_SPEED)
+        g_rideSpeed = RIDE_MIN_SPEED;
+    if (g_rideSpeed > RIDE_MAX_SLOPE_SPEED)
+        g_rideSpeed = RIDE_MAX_SLOPE_SPEED;
+
+    // napredovanje po pruzi sa finalnom brzinom
     g_trackParam += g_rideSpeed * (float)deltaTime;
 
     // ako smo stigli do kraja pruge -> zaustavi
@@ -257,7 +282,7 @@ void RC_Update(double deltaTime)
         g_isRideRunning = false;
     }
 
-    // uzimamo ugao za prikaz nagiba vagona
+    // uzimamo ugao za crtanje vagona
     float x, y, angle;
     SampleTrack(g_trackParam, x, y, angle);
     g_cartAngle = angle;
