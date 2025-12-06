@@ -72,6 +72,7 @@ static float passengerHalfWidth = 0.0f;
 static float passengerHalfHeight = 0.0f;
 static float seatStepGlobal = 0.0f;
 static bool unloadingPhase = false;  // true kad se voz vratio na pocetak i "ispraznjavamo" putnike
+static bool emergencyInProgress = false;
 
 // ------------------ STUBOVI ISPOD PRUGE ------------------
 
@@ -410,10 +411,10 @@ static void KeyCallback(GLFWwindow* window, int key, int scancode, int action, i
     case GLFW_KEY_7:
     case GLFW_KEY_8:
     {
-        if (!RC_IsRideRunning())
+        // ako voz ne vozi ili smo vec u emergency scenariju -> ignorisi signal
+        if (!RC_IsRideRunning() || emergencyInProgress)
             return;
 
-        // signal ima smisla samo dok voz vozi
         int keyIndex = key - GLFW_KEY_1;
 
         // 0 = prednje sjediste (seat[7])
@@ -429,6 +430,9 @@ static void KeyCallback(GLFWwindow* window, int key, int scancode, int action, i
         // oznaci ga kao "zelenog" i pokreni emergency stop
         seats[seatNumber].sick = true;
         RC_RequestEmergencyStop();
+
+        // ne primamo nove sick signale
+        emergencyInProgress = true;
         break;
     }
     }
@@ -537,6 +541,7 @@ void UpdateScene(GLFWwindow* window, double deltaTime)
             }
         }
         unloadingPhase = true;
+        emergencyInProgress = false;   // odradili ture, spremni za novu
     }
 }
 
