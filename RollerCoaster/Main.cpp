@@ -5,6 +5,8 @@
 #include "Scene.h"
 #include <iostream>
 #include <cmath>
+#include <thread>
+#include <chrono>
 
 int main()
 {
@@ -42,6 +44,8 @@ int main()
     // povezivanje OpenGL konteksta sa prozorom
     glfwMakeContextCurrent(window);
 
+    glfwSwapInterval(0);  // iskljucen Vsync, da u potpunosti kontrolisemo fps
+
     // GLEW inicijalizacija
     if (glewInit() != GLEW_OK) {
         return endProgram("GLEW nije uspio da se inicijalizuje.");
@@ -61,27 +65,17 @@ int main()
 
     // FPS limiter i delta time
     const double TARGET_FPS = 75.0;
-    const double FRAME_DURATION = 1.0 / TARGET_FPS; // trajanje jednog frejma u sekundama ( priblizno 0.0133s)
+    const double FRAME_DURATION = 1.0 / TARGET_FPS;
 
-    // vrijeme posljednjeg iscrtanog frejma
     double lastFrameTime = glfwGetTime();
 
-    // glavna petlja 
     while (!glfwWindowShouldClose(window))
     {
-        // vrijeme od posljednjeg frejma
-        double currentTime = glfwGetTime();
-        double deltaTime = currentTime - lastFrameTime;
+        double frameStart = glfwGetTime();
+        double deltaTime = frameStart - lastFrameTime;
+        lastFrameTime = frameStart;
 
-        // FPS limiter - ako frejm traje krace od FRAME_DURATION, sacekaj
-        if (deltaTime < FRAME_DURATION) {
-            continue; // preskoci ostatak petlje, jos je rano za sljedeci frejm
-        }
-
-        // azuriranje vremena posljednjeg frejma
-        lastFrameTime = currentTime;
-
-        // ESC za izlaz 
+        // ESC za izlaz
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
             glfwSetWindowShouldClose(window, true);
         }
@@ -89,11 +83,20 @@ int main()
         // logika: unos, pomjeranje, pojasevi, putnici...
         UpdateScene(window, deltaTime);
 
-        // iscrtavanje svega
+        // iscrtavanje
         RenderScene();
 
         glfwSwapBuffers(window);
         glfwPollEvents();
+
+        // FPS limiter - spavaj ako je frejm bio prebrz
+        double frameEnd = glfwGetTime();
+        double frameTime = frameEnd - frameStart;
+
+        if (frameTime < FRAME_DURATION) {
+            double sleepTime = FRAME_DURATION - frameTime;
+            std::this_thread::sleep_for(std::chrono::duration<double>(sleepTime));
+        }
     }
 
     // terminacija
