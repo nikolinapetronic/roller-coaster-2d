@@ -1,15 +1,10 @@
 #define _USE_MATH_DEFINES
 #include "Scene.h"
 #include "Util.h"
+#include "Motion.h"
 
 #include <iostream>
 #include <cmath>
-
-// pomjeraj kvadrata (vagona) po x i y osi
-static float offsetX = 0.0f;
-static float offsetY = 0.0f;
-
-static bool isRideRunning = false;
 
 // podaci o 8 sjedista u vagonu
 struct Seat {
@@ -43,6 +38,7 @@ static int uTrackColorLocation = -1;
 static int uOffsetLocation = -1;
 static int uTexLocation = -1;
 static int uAlphaLocation = -1;
+static int uAngleLocation = -1;
 
 // VAO i VBO
 static unsigned int VAO;           // vagon (segment jednog sjedista)
@@ -74,12 +70,6 @@ static float passengerHalfWidth = 0.0f;
 static float passengerHalfHeight = 0.0f;
 static float seatStepGlobal = 0.0f;
 
-// ------------------  VAO/VBO za prugu rolerkostera (Bezier sa C1 kontinuitetom) ------------------
-
-static const int TRACK_SEGMENTS = 1500; // povecan broj segmenata za glatku krivu
-static const int TRACK_POINT_COUNT = TRACK_SEGMENTS + 1;
-static float trackVertices[(TRACK_SEGMENTS + 1) * 2];
-
 // ------------------ STUBOVI ISPOD PRUGE ------------------
 
 // broj stubova
@@ -87,24 +77,19 @@ static const int SUPPORT_COUNT = 35;
 static float supportVertices[SUPPORT_COUNT * 4];
 // svaki stub ima 2 verteksa: (x_top, y_top), (x_top, y_bottom) => 4 floats
 
-// ------------------ STANJE VOZNJE PO PRUZI ------------------
+// ------------------ PARAMETRI PRUGE U NDC ------------------
 
-// parametar duz staze [0,1]
-static float trackParam = 0.0f;
-// "brzina" pomjeranja po parametru
-static float rideSpeed = 0.0f;
-// ubrzanje i maksimalna brzina
-static const float RIDE_ACCEL = 0.08f;
-static const float RIDE_MAX_SPEED = 0.25f;
+static float trackXMin = -0.9f;
+static float trackXMax = 0.9f;
 
 // ------------------ POMOCNE FUNKCIJE ------------------
 
 // ucitavanje teksture i podesavanje parametara
 void preprocessTexture(unsigned& texture, const char* filepath) {
     texture = loadImageToTexture(filepath); // ucitavanje teksture
-    glBindTexture(GL_TEXTURE_2D, texture); // vezujemo se za teksturu kako bismo je podesili
+    glBindTexture(GL_TEXTURE_2D, texture);  // vezujemo se za teksturu kako bismo je podesili
 
-    // generisanje mipmapa - predefinisani razliciti formati za lakše skaliranje po potrebi
+    // generisanje mipmapa - predefinisani razliciti formati za lakse skaliranje po potrebi
     glGenerateMipmap(GL_TEXTURE_2D);
 
     // podesavanje strategija za wrap-ovanje
@@ -116,18 +101,11 @@ void preprocessTexture(unsigned& texture, const char* filepath) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 }
 
-// pomocna funkcija: kubna Bezier kriva za y koordinatu 
-static float bezierY(float t, float p0, float p1, float p2, float p3) {
-    float u = 1.0f - t;
-    return u * u * u * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t * p3;
-}
 
 // callback funkcije i pomocne za voznju (prototipi)
 static void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
 static void MouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
 static bool AreAllOccupiedSeatsBelted();
-static void TryStartRide();
-static void SetCartToTrack(float param);
 
 // ------------------  InitScene ------------------
 
@@ -154,16 +132,10 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
         std::cout << "Custom kursor NIJE postavljen." << std::endl;
     }
 
-    // ucitavanje teksture vagona
-    preprocessTexture(wagonTexture, "res/cart_one.png");
-
-    // ucitavanje teksture nameplatea
+    // ucitavanje tekstura
+    preprocessTexture(wagonTexture, "res/pink_cart.png");
     preprocessTexture(nameplateTexture, "res/nameplate1.png");
-
-    // ucitavanje teksture putnika
     preprocessTexture(passengerTexture, "res/passenger.png");
-
-    // ucitavanje teksture pojasa
     preprocessTexture(beltTexture, "res/seatbelt.png");
 
     // kreiranje shadera
@@ -176,36 +148,35 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
         std::cout << "uColor (track) nije pronadjen u shaderu!" << std::endl;
     }
 
-    // pronalazimo lokaciju uniforme uOffset u shaderu
+    // pronalazimo lokacije uniformi u basic shaderu
     uOffsetLocation = glGetUniformLocation(basicShader, "uOffset");
     if (uOffsetLocation == -1) {
         std::cout << "uOffset nije pronadjen u shaderu!" << std::endl;
     }
 
-    // uniform za teksturu (sampler2D)
     uTexLocation = glGetUniformLocation(basicShader, "uTex");
     if (uTexLocation == -1) {
         std::cout << "uTex nije pronadjen u shaderu!" << std::endl;
     }
 
-    // podesimo da uTex koristi teksturnu jedinicu 0
     glUseProgram(basicShader);
     glUniform1i(uTexLocation, 0);  // GL_TEXTURE0
 
-    // uniforma za dodatnu providnost
     uAlphaLocation = glGetUniformLocation(basicShader, "uAlpha");
     if (uAlphaLocation == -1) {
         std::cout << "uAlpha nije pronadjen u shaderu!" << std::endl;
     }
 
+    uAngleLocation = glGetUniformLocation(basicShader, "uAngle");
+    if (uAngleLocation == -1)
+        std::cout << "uAngle nije pronadjen u shaderu!\n";
+
     // ----------------- Geometrija vozila + 8 sjedista -----------------
 
     // visina vagona na ekranu
     cartHalfHeight = 0.21f;
-
-    // faktor koliko je sirina veca od visine (npr. 3x)
+    // faktor koliko je sirina veca od visine
     cartShapeRatio = 1.7f;
-
     // sirina korigovana aspect-om i oblikom
     cartHalfWidth = cartHalfHeight * cartShapeRatio * aspect;
 
@@ -229,6 +200,9 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
     float seatStep = seatSpan / SEAT_COUNT;
     seatStepGlobal = seatStep;
 
+    // ----------------- Parametri kompozicije po stazi -----------------
+    RC_InitMotion(trackXMin, trackXMax, seatStepGlobal, SEAT_COUNT);
+
     // visina sjedista unutar vagona (po y-osi)
     float seatsY = cartHalfHeight * 0.3f;
 
@@ -250,7 +224,7 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
     // sirina vezana za razmak izmedju sjedista
     wagonSegmentHalfWidth = seatStepGlobal * 0.7f;
 
-    // x, y, u, v 
+    // x, y, u, v  
     float wagonVertices[] = {
         -wagonSegmentHalfWidth,  wagonSegmentHalfHeight, 0.0f, 1.0f,
         -wagonSegmentHalfWidth, -wagonSegmentHalfHeight, 0.0f, 0.0f,
@@ -273,109 +247,9 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
     glEnableVertexAttribArray(1);
 
-    // ------------------  VAO/VBO za prugu rolerkostera (Bezier sa C1 kontinuitetom) ------------------
+    // ------------------  VAO/VBO za prugu rolerkostera ------------------
 
-    // kontrolne tacke za cijelu stazu
-    // definisanje unaprijed, osiguravanje C1 kontinuiteta
-
-    // y-koordinate kljucnih tacaka (P0 i P3 za svaki segment)
-    float y_start = -0.5f;      // pocetak staze (lijevo)
-    float y_mid_valley1 = -0.3f; // prva dolina
-    float y_peak1 = 0.2f;       // prvi vrh
-    float y_mid_valley2 = -0.4f; // druga dublja dolina
-    float y_peak2 = 0.5f;       // drugi visi vrh
-    float y_mid_valley3 = -0.2f; // treca dolina
-    float y_peak3 = 0.3f;       // treci vrh
-    float y_end = -0.02f;       // kraj staze (desno)
-
-    // odredjivanje X-pozicija segmenata
-    // totalni opseg X je od -1.0 do 1.0
-    // podijelicemo ga na 7 segmenata (jer imamo 8 kljucnih Y tacaka)
-    float x_segments[] = {
-        0.0f,  // t=0.0 -> x=-1.0
-        0.15f, // kraj prvog segmenta (uspon ka peak1)
-        0.35f, // kraj drugog segmenta (pad u valley2)
-        0.50f, // kraj treceg segmenta (uspon ka peak2)
-        0.65f, // kraj cetvrtog segmenta (pad u valley3)
-        0.80f, // kraj petog segmenta (uspon ka peak3)
-        0.95f, // kraj sestog segmenta (pad ka kraju)
-        1.0f   // t=1.0 -> x=1.0
-    };
-
-    // pocetne tacke
-    // kljucne y koordinate za C1 kontinuitet
-    // P0 i P3 ce biti spojevi segmenata
-    float current_P0 = y_start;
-    float current_P1 = y_start + 0.05f; // blago nagore, glatki start
-    float current_P2 = y_start + 0.15f; // dalje od P1 za sirinu
-    float current_P3;
-
-    for (int i = 0; i <= TRACK_SEGMENTS; ++i) {
-        float t = i / static_cast<float>(TRACK_SEGMENTS); // t_global od 0 do 1
-        float xMin = -0.85f;
-        float xMax = 0.85f;
-        float x = xMin + (xMax - xMin) * t;
-        float y;
-
-        // segment 1: start -> prvi brijeg (y_start do y_peak1)
-        if (t <= x_segments[1]) {
-            float u = t / x_segments[1]; // lokalni t za segment
-            current_P0 = y_start;
-            current_P1 = y_start + 0.1f; // kontrola nagiba od starta
-            current_P2 = y_peak1 - 0.1f; // kontrola nagiba ka vrhu
-            current_P3 = y_peak1;       // kraj prvog segmenta
-            y = bezierY(u, current_P0, current_P1, current_P2, current_P3);
-        }
-        // segment 2: prvi brijeg -> prva dolina (y_peak1 do y_mid_valley2)
-        else if (t <= x_segments[2]) {
-            float u = (t - x_segments[1]) / (x_segments[2] - x_segments[1]);
-            current_P0 = y_peak1;
-            // P1 = P0 + (P0 - P2_prev)
-            current_P1 = current_P0 + (current_P0 - (y_peak1 - 0.1f)); // C1 kontinuitet
-            current_P2 = y_mid_valley2 + 0.1f; // kontrola nagiba ka dolini
-            current_P3 = y_mid_valley2;       // kraj drugog segmenta
-            y = bezierY(u, current_P0, current_P1, current_P2, current_P3);
-        }
-        // segment 3: prva dolina -> drugi brijeg (y_mid_valley2 do y_peak2)
-        else if (t <= x_segments[3]) {
-            float u = (t - x_segments[2]) / (x_segments[3] - x_segments[2]);
-            current_P0 = y_mid_valley2;
-            current_P1 = current_P0 + (current_P0 - (y_mid_valley2 + 0.1f)); // C1 kontinuitet
-            current_P2 = y_peak2 - 0.15f; // kontrola nagiba ka visem vrhu
-            current_P3 = y_peak2;         // kraj treceg segmenta
-            y = bezierY(u, current_P0, current_P1, current_P2, current_P3);
-        }
-        // segment 4: drugi brijeg -> druga dolina (y_peak2 do y_mid_valley3)
-        else if (t <= x_segments[4]) {
-            float u = (t - x_segments[3]) / (x_segments[4] - x_segments[3]);
-            current_P0 = y_peak2;
-            current_P1 = current_P0 + (current_P0 - (y_peak2 - 0.15f)); // C1 kontinuitet
-            current_P2 = y_mid_valley3 + 0.05f; // kontrola nagiba ka dolini
-            current_P3 = y_mid_valley3;         // kraj cetvrtog segmenta
-            y = bezierY(u, current_P0, current_P1, current_P2, current_P3);
-        }
-        // segment 5: druga dolina -> treci brijeg (y_mid_valley3 do y_peak3)
-        else if (t <= x_segments[5]) {
-            float u = (t - x_segments[4]) / (x_segments[5] - x_segments[4]);
-            current_P0 = y_mid_valley3;
-            current_P1 = current_P0 + (current_P0 - (y_mid_valley3 + 0.05f)); // C1 kontinuitet
-            current_P2 = y_peak3 - 0.1f; // kontrola nagiba ka trecem vrhu
-            current_P3 = y_peak3;       // kraj petog segmenta
-            y = bezierY(u, current_P0, current_P1, current_P2, current_P3);
-        }
-        // segment 6: treci brijeg -> kraj (y_peak3 do y_end)
-        else { // t > x_segments[5]
-            float u = (t - x_segments[5]) / (x_segments[6] - x_segments[5]); // do kraja
-            current_P0 = y_peak3;
-            current_P1 = current_P0 + (current_P0 - (y_peak3 - 0.1f)); // C1 kontinuitet
-            current_P2 = y_end + 0.05f; // kontrola nagiba ka kraju
-            current_P3 = y_end;         // kraj staze
-            y = bezierY(u, current_P0, current_P1, current_P2, current_P3);
-        }
-
-        trackVertices[i * 2] = x;
-        trackVertices[i * 2 + 1] = y;
-    }
+    const float* trackVertices = RC_GetTrackVertices();
 
     // VAO/VBO za prugu (jedna linija)
     glGenVertexArrays(1, &VAOTrack);
@@ -383,7 +257,10 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
 
     glBindVertexArray(VAOTrack);
     glBindBuffer(GL_ARRAY_BUFFER, VBOTrack);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(trackVertices), trackVertices, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER,
+        sizeof(float) * RC_TRACK_POINT_COUNT * 2,
+        trackVertices,
+        GL_STATIC_DRAW);
 
     // atribut 0: pozicija (x, y)
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
@@ -395,12 +272,13 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
     // ------------------ STUBOVI ISPOD PRUGE ------------------
 
     float bottomY = -0.98f;
+    const float* tv = RC_GetTrackVertices();
 
     for (int i = 0; i < SUPPORT_COUNT; ++i) {
         // uzmi tacku sa pruge na odredjenom mjestu
-        int trackIndex = i * (TRACK_POINT_COUNT - 1) / (SUPPORT_COUNT - 1);
-        float x_top = trackVertices[trackIndex * 2];
-        float y_top = trackVertices[trackIndex * 2 + 1];
+        int   trackIndex = i * (RC_TRACK_POINT_COUNT - 1) / (SUPPORT_COUNT - 1);
+        float x_top = tv[trackIndex * 2];
+        float y_top = tv[trackIndex * 2 + 1];
 
         // gornja tacka (na pruzi)
         supportVertices[i * 4 + 0] = x_top;
@@ -422,7 +300,6 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
     // atribut 0: pozicija (x, y)
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
-
 
     // VAO i VBO za nameplate (ime u gornjem lijevom uglu) 
 
@@ -448,7 +325,9 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
     glEnableVertexAttribArray(1);
 
+    // ------------------ VAO/VBO za putnika/pojas ------------------
     // putnik malo uzi i nizi od samog vagona
+
     passengerHalfWidth = wagonSegmentHalfWidth * 0.7f;
     passengerHalfHeight = wagonSegmentHalfHeight * 0.6f;
 
@@ -474,12 +353,6 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
     glEnableVertexAttribArray(1);
 
-    // na pocetku programa vozilo stoji na pocetku pruge
-    trackParam = 0.0f;
-    rideSpeed = 0.0f;
-    isRideRunning = false;
-    SetCartToTrack(trackParam);
-
     // vracamo na neki default VAO
     glBindVertexArray(0);
 }
@@ -488,6 +361,10 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
 
 static void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
+    (void)window;
+    (void)scancode;
+    (void)mods;
+
     // reagujemo samo na pritisak (ne i na pustanje)
     if (action != GLFW_PRESS)
         return;
@@ -495,6 +372,9 @@ static void KeyCallback(GLFWwindow* window, int key, int scancode, int action, i
     switch (key)
     {
     case GLFW_KEY_SPACE:
+        // nije dozvoljeno dodavanje putnika u toku voznje
+        if (RC_IsRideRunning())
+            break;
         // pronadji prvo slobodno sjediste (naprijed ka nazad)
         // punimo od pocetka vagona ka nazad
         for (int i = SEAT_COUNT - 1; i >= 0; --i) {
@@ -507,11 +387,14 @@ static void KeyCallback(GLFWwindow* window, int key, int scancode, int action, i
         break;
 
     case GLFW_KEY_ENTER:
+    {
         // pokusaj da pokrenes voznju
-        TryStartRide();
+        bool canStart = AreAllOccupiedSeatsBelted();
+        RC_TryStartRide(canStart);
         break;
+    }
 
-        // tasteri 1-8 ce kasnije simulirati signal da se nekom putniku slosilo
+    // tasteri 1-8 ce kasnije simulirati signal da se nekom putniku slosilo
     case GLFW_KEY_1:
     case GLFW_KEY_2:
     case GLFW_KEY_3:
@@ -532,7 +415,13 @@ static void KeyCallback(GLFWwindow* window, int key, int scancode, int action, i
 
 static void MouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
 {
+    (void)window;
+    (void)mods;
+
     if (button != GLFW_MOUSE_BUTTON_LEFT || action != GLFW_PRESS)
+        return;
+
+    if (RC_IsRideRunning())    // nije dozvoljeno dodavanje/uklanjanje pojaseva u toku voznje
         return;
 
     // pozicija misa u trenutku klika
@@ -547,8 +436,15 @@ static void MouseButtonCallback(GLFWwindow* window, int button, int action, int 
     for (int i = 0; i < SEAT_COUNT; ++i) {
         if (!seats[i].occupied) continue; // ako nema putnika, nista
 
-        float cx = offsetX + seats[i].localX;
-        float cy = offsetY + seats[i].localY;
+        const float wagonYOffset = wagonSegmentHalfHeight;
+        const float passengerYOffset = wagonYOffset + wagonSegmentHalfHeight * 0.3f;
+
+        float sx, sy, angle;
+        RC_GetSeatBasePosAndAngle(i, sx, sy, angle);
+
+        // centar putnika
+        float cx = sx;
+        float cy = sy + passengerYOffset;
 
         if (mouseNdcX >= cx - passengerHalfWidth && mouseNdcX <= cx + passengerHalfWidth &&
             mouseNdcY >= cy - passengerHalfHeight && mouseNdcY <= cy + passengerHalfHeight) {
@@ -580,93 +476,12 @@ static bool AreAllOccupiedSeatsBelted()
     return anyOccupied;
 }
 
-// pokusaj da zapocnes voznju
-static void TryStartRide()
-{
-    if (isRideRunning)
-        return; // vec se krece
-
-    if (!AreAllOccupiedSeatsBelted())
-        return; // uslov nije ispunjen
-
-    // krecemo od pocetka staze, sa nule brzine
-    trackParam = 0.0f;
-    rideSpeed = 0.0f;
-    isRideRunning = true;
-
-    SetCartToTrack(trackParam);
-}
-
-// postavi offsetX/offsetY na tacku na stazi definisanu parametrom [0,1]
-static void SetCartToTrack(float param)
-{
-    if (param < 0.0f) param = 0.0f;
-    if (param > 1.0f) param = 1.0f;
-
-    float fIndex = param * (TRACK_POINT_COUNT - 1);
-    int i0 = (int)std::floor(fIndex);
-    int i1 = i0 + 1;
-    if (i1 >= TRACK_POINT_COUNT) i1 = TRACK_POINT_COUNT - 1;
-
-    float localT = fIndex - (float)i0;
-
-    float x0 = trackVertices[i0 * 2 + 0];
-    float y0 = trackVertices[i0 * 2 + 1];
-    float x1 = trackVertices[i1 * 2 + 0];
-    float y1 = trackVertices[i1 * 2 + 1];
-
-    // linearna interpolacija izmedju dvije susjedne tacke
-    float x = (1.0f - localT) * x0 + localT * x1;
-    float y = (1.0f - localT) * y0 + localT * y1;
-
-    offsetX = x;
-    offsetY = y; //+wagonSegmentHalfHeight * 0.2f;
-}
-
 // ------------------  UpdateScene ------------------
 
 void UpdateScene(GLFWwindow* window, double deltaTime)
 {
-    // rucno pomjeranje kvadrata - skalirano deltaTime-om 
-    if (!isRideRunning) {
-        float speed = 0.5f; // jedinica u sekundi
-        float velocity = speed * static_cast<float>(deltaTime);
-
-        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
-            offsetX -= velocity; // lijevo
-        }
-        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
-            offsetX += velocity; // desno
-        }
-        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
-            offsetY += velocity; // gore
-        }
-        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
-            offsetY -= velocity; // dole
-        }
-    }
-
-    // automatsko kretanje po pruzi
-    if (isRideRunning)
-    {
-        // jednostavno ubrzanje dok ne dostignemo maksimalnu brzinu
-        rideSpeed += RIDE_ACCEL * (float)deltaTime;
-        if (rideSpeed > RIDE_MAX_SPEED)
-            rideSpeed = RIDE_MAX_SPEED;
-
-        // pomjeranje po parametru staze
-        trackParam += rideSpeed * (float)deltaTime;
-
-        // za sada: kad dodjemo do kraja staze (t=1), zaustavimo voznju
-        if (trackParam >= 1.0f) {
-            trackParam = 1.0f;
-            isRideRunning = false;
-            rideSpeed = 0.0f;
-        }
-
-        // postavi offsetX/offsetY prema trenutnom parametru
-        SetCartToTrack(trackParam);
-    }
+    (void)window;
+    RC_Update(deltaTime);
 }
 
 // ------------------  RenderScene ------------------
@@ -677,37 +492,34 @@ void RenderScene()
 
     // crtanje pruge - jedna glatka kriva sa ravnim dijelovima
     glUseProgram(trackShader);
-
     // tamno siva boja
     glUniform3f(uTrackColorLocation, 0.2f, 0.2f, 0.2f);
 
     glBindVertexArray(VAOTrack);
-    glDrawArrays(GL_LINE_STRIP, 0, TRACK_POINT_COUNT);
+    glDrawArrays(GL_LINE_STRIP, 0, RC_TRACK_POINT_COUNT);
 
     // crtanje stubova ispod pruge (isti shader i boja kao za prugu)
     glBindVertexArray(VAOSupports);
     glDrawArrays(GL_LINES, 0, SUPPORT_COUNT * 2);
 
-
-    // biramo teksturnu jedinicu 0 i vezujemo teksturu vagona
+    // crtanje vozila
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, wagonTexture);
 
-    // crtanje vozila: 8 malih kvadrata, po jedan ispod svakog sjedista
-    glUseProgram(basicShader); // koristi shader 
-
-    // vagon je potpuno neprovidan
+    glUseProgram(basicShader);
     glUniform1f(uAlphaLocation, 1.0f);
 
-    glBindVertexArray(VAO);    // koristi VAO sa jednim malim kvadratom
+    glBindVertexArray(VAO);
+
+    const float wagonYOffset = wagonSegmentHalfHeight;
 
     for (int i = 0; i < SEAT_COUNT; ++i) {
-        // svaki segment ce biti centriran oko istih lokalnih koordinata kao sjediste
-        float worldX = offsetX + seats[i].localX;
-        float worldY = offsetY + seats[i].localY;
+        float sx, sy, angle;
+        RC_GetSeatBasePosAndAngle(i, sx, sy, angle);
 
-        glUniform2f(uOffsetLocation, worldX, worldY); // slanje offseta u shader
-        glDrawArrays(GL_TRIANGLE_FAN, 0, 4);          // 4 verteksa kao kvadrat
+        glUniform1f(uAngleLocation, angle);
+        glUniform2f(uOffsetLocation, sx, sy + wagonYOffset);
+        glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
     }
 
 
@@ -715,19 +527,21 @@ void RenderScene()
     glUseProgram(basicShader);
     glBindVertexArray(VAOPassenger);
 
+    const float passengerYOffset = wagonYOffset + wagonSegmentHalfHeight * 0.3f;
+
     for (int i = 0; i < SEAT_COUNT; ++i) {
         if (!seats[i].occupied) continue;
-
         // svako sjediste ima svoju lokalnu poziciju u odnosu na vagon
-        float worldX = offsetX + seats[i].localX;
-        float worldY = offsetY + seats[i].localY;
+        float sx, sy, angle;
+        RC_GetSeatBasePosAndAngle(i, sx, sy, angle);
 
         // prvo crtamo putnika
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, passengerTexture);
 
-        glUniform1f(uAlphaLocation, 1.0f);        // pun prikaz
-        glUniform2f(uOffsetLocation, worldX, worldY);
+        glUniform1f(uAlphaLocation, 1.0f);
+        glUniform1f(uAngleLocation, angle);
+        glUniform2f(uOffsetLocation, sx, sy + passengerYOffset);
 
         glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 
@@ -736,6 +550,7 @@ void RenderScene()
             glBindTexture(GL_TEXTURE_2D, beltTexture);
             // isti offset, isti VAO, samo druga tekstura
             glUniform1f(uAlphaLocation, 1.0f);
+            glUniform1f(uAngleLocation, angle);
             glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
         }
     }
@@ -749,9 +564,9 @@ void RenderScene()
 
     // nameplate poluprovidan
     glUniform1f(uAlphaLocation, 0.1f);
-
-    // nameplate statican u uglu, bez pomjeranja WASD-om
+    // nameplate statican u uglu, bez pomjeranja
     glUniform2f(uOffsetLocation, 0.0f, 0.0f);
+    glUniform1f(uAngleLocation, 0.0f);
 
     glBindVertexArray(VAONameplate);
     glDrawArrays(GL_TRIANGLE_FAN, 0, 4);

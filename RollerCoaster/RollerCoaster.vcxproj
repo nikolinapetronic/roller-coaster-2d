@@ -125,6 +125,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Main.cpp" />
+    <ClCompile Include="Motion.cpp" />
     <ClCompile Include="Scene.cpp" />
     <ClCompile Include="Util.cpp" />
   </ItemGroup>
@@ -136,6 +137,7 @@
     <None Include="track.vert" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Motion.h" />
     <ClInclude Include="Scene.h" />
     <ClInclude Include="stb_image.h" />
     <ClInclude Include="Util.h" />
