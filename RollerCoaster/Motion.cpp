@@ -4,6 +4,26 @@
 #include <cmath>
 
 // ------------------ KONSTANTE ------------------
+
+enum class RideState {
+    AtStartIdle,
+    RunningForward,
+    EmergencyStopping,
+    StoppedForSick,
+    ReturningToStart
+};
+
+static RideState g_state = RideState::AtStartIdle;
+
+static bool  g_emergencyRequested = false;
+static bool  g_justReturnedToStart = false;
+
+static const float EMERGENCY_DECEL = 0.08f;  // koliko brzo koci kad se nekom slosi
+static const float RETURN_SPEED = 0.04f;  // mala konst. brzina nazad
+static const float SICK_STOP_DURATION = 10.0f;  // 10 sekundi pauze
+
+static double g_stopTimer = 0.0;
+
 // broj segmenata pruge i izvedeni broj tacaka
 // (ukupno se crta RC_TRACK_POINT_COUNT tacaka)
 const int RC_TRACK_SEGMENTS = 2000;
@@ -271,6 +291,10 @@ void RC_InitMotion(float trackXMin,
     g_rideSpeed = 0.0f;
     g_isRideRunning = false;
     g_cartAngle = 0.0f;
+    g_state = RideState::AtStartIdle;
+    g_emergencyRequested = false;
+    g_justReturnedToStart = false;
+    g_stopTimer = 0.0;
 }
 
 // stanje
@@ -284,74 +308,121 @@ bool RC_IsRideRunning()
 // - canStart je true (provjera iz Scene.cpp)
 void RC_TryStartRide(bool canStart)
 {
-    if (g_isRideRunning)
-        return;
     if (!canStart)
         return;
 
-    // cijeli voz staje na prugu pa pocinjemo od g_trackParamStart
+    if (g_isRideRunning)
+        return;
+
+    if (g_state != RideState::AtStartIdle)
+        return;
+
     g_trackParam = g_trackParamStart;
     g_rideSpeed = 0.0f;
     g_isRideRunning = true;
+    g_state = RideState::RunningForward;
+    g_emergencyRequested = false;
+    g_stopTimer = 0.0;
 }
 
 // glavni update
 void RC_Update(double deltaTime)
 {
-    if (!g_isRideRunning)
-        return;
+    float dt = (float)deltaTime;
 
-    // osnovno ubrzavanje: iz mirovanja do "krstarece" brzine na ravnom
-    g_rideSpeed += RIDE_ACCEL * (float)deltaTime;
-    if (g_rideSpeed > RIDE_MAX_SPEED)
-        g_rideSpeed = RIDE_MAX_SPEED;
-
-    // --- SMOOTH NAGIBA OKO TRENUTNE POZICIJE -----
-    float xCurr, yCurr, angleCurr;
-    SampleTrack(g_trackParam, xCurr, yCurr, angleCurr);
-
-    float xA, yA, angleAhead;
-    float xB, yB, angleBehind;
-
-    const float paramOffset = 0.002f; 
-
-    // malo ispred
-    float paramAhead = g_trackParam + paramOffset;
-    if (paramAhead > 1.0f) paramAhead = 1.0f;
-    SampleTrack(paramAhead, xA, yA, angleAhead);
-
-    // malo iza
-    float paramBehind = g_trackParam - paramOffset;
-    if (paramBehind < 0.0f) paramBehind = 0.0f;
-    SampleTrack(paramBehind, xB, yB, angleBehind);
-
-    // prosjek tri ugla -> zagladjen nagib
-    float smoothAngle = (angleBehind + angleCurr + angleAhead) / 3.0f;
-
-    // koristimo zagladjeni ugao umjesto "skacuceg"
-    float slopeFactor = std::sin(smoothAngle);
-
-    // nizbrdo: slopeFactor < 0 -> -slopeFactor > 0 -> ubrzavamo
-    // uzbrdo: slopeFactor > 0 -> -slopeFactor < 0 -> usporavamo
-    g_rideSpeed += RIDE_SLOPE_ACCEL * (-slopeFactor) * (float)deltaTime;
-
-    // ogranicenja brzine
-    if (g_rideSpeed < RIDE_MIN_SPEED)
-        g_rideSpeed = RIDE_MIN_SPEED;
-    if (g_rideSpeed > RIDE_MAX_SLOPE_SPEED)
-        g_rideSpeed = RIDE_MAX_SLOPE_SPEED;
-
-    // napredovanje po pruzi sa finalnom brzinom
-    g_trackParam += g_rideSpeed * (float)deltaTime;
-
-    // ako smo stigli do kraja pruge -> zaustavi
-    if (g_trackParam >= g_trackParamEnd) {
-        g_trackParam = g_trackParamEnd;
-        g_rideSpeed = 0.0f;
+    switch (g_state)
+    {
+    case RideState::AtStartIdle:
+        // stoji na pocetku, nista se ne desava
         g_isRideRunning = false;
+        break;
+
+    case RideState::RunningForward:
+    {
+        g_isRideRunning = true;
+
+        // osnovno ubrzavanje do krstarece brzine
+        g_rideSpeed += RIDE_ACCEL * dt;
+        if (g_rideSpeed > RIDE_MAX_SPEED)
+            g_rideSpeed = RIDE_MAX_SPEED;
+
+        // ako je neko trazio emergency -> odmah prelazimo u mod kocenja
+        if (g_emergencyRequested) {
+            g_state = RideState::EmergencyStopping;
+            break;
+        }
+
+        // normalna “gravitaciona” fizika
+        float xCurr, yCurr, angleCurr;
+        SampleTrack(g_trackParam, xCurr, yCurr, angleCurr);
+
+        float slopeFactor = std::sin(angleCurr);
+        g_rideSpeed += RIDE_SLOPE_ACCEL * (-slopeFactor) * dt;
+
+        if (g_rideSpeed < RIDE_MIN_SPEED)
+            g_rideSpeed = RIDE_MIN_SPEED;
+        if (g_rideSpeed > RIDE_MAX_SLOPE_SPEED)
+            g_rideSpeed = RIDE_MAX_SLOPE_SPEED;
+
+        g_trackParam += g_rideSpeed * dt;
+
+        // stigli do kraja -> automatski prelazimo u povratak na pocetak
+        if (g_trackParam >= g_trackParamEnd) {
+            g_trackParam = g_trackParamEnd;
+            g_state = RideState::ReturningToStart;
+            g_rideSpeed = -RETURN_SPEED;
+            g_isRideRunning = true;
+        }
+        break;
     }
 
-    // ugao za crtanje vagona
+    case RideState::EmergencyStopping:
+    {
+        g_isRideRunning = true;
+
+        // lagano kocenje, nezavisno od nagiba
+        g_rideSpeed -= EMERGENCY_DECEL * dt;
+        if (g_rideSpeed < 0.0f)
+            g_rideSpeed = 0.0f;
+
+        g_trackParam += g_rideSpeed * dt;
+
+        if (g_rideSpeed <= 0.0f) {
+            g_state = RideState::StoppedForSick;
+            g_isRideRunning = false;
+            g_emergencyRequested = false;
+            g_stopTimer = 0.0;
+        }
+        break;
+    }
+
+    case RideState::StoppedForSick:
+        g_isRideRunning = false;
+        g_stopTimer += deltaTime;
+        if (g_stopTimer >= SICK_STOP_DURATION) {
+            g_state = RideState::ReturningToStart;
+            g_isRideRunning = true;
+            g_rideSpeed = -RETURN_SPEED;
+        }
+        break;
+
+    case RideState::ReturningToStart:
+        g_isRideRunning = true;
+
+        // idemo KONSTANTNOM brzinom nazad (bez gravitacije)
+        g_trackParam += g_rideSpeed * dt;  // g_rideSpeed < 0
+
+        if (g_trackParam <= g_trackParamStart) {
+            g_trackParam = g_trackParamStart;
+            g_rideSpeed = 0.0f;
+            g_isRideRunning = false;
+            g_state = RideState::AtStartIdle;
+            g_justReturnedToStart = true;   // javi sceni da smo stigli
+        }
+        break;
+    }
+
+    // ugao za crtanje vagona (zavisno od trenutnog parametra)
     float x, y, angle;
     SampleTrack(g_trackParam, x, y, angle);
     g_cartAngle = angle;
@@ -378,4 +449,23 @@ void RC_GetSeatBasePosAndAngle(int seatIndex,
 const float* RC_GetTrackVertices()
 {
     return g_trackVertices;
+}
+
+void RC_RequestEmergencyStop()
+{
+    // emergency smije samo dok normalno vozimo naprijed
+    if (!g_isRideRunning)
+        return;
+    if (g_state != RideState::RunningForward)
+        return;
+
+    g_emergencyRequested = true;
+}
+
+bool RC_DidJustReturnToStart()
+{
+    if (!g_justReturnedToStart)
+        return false;
+    g_justReturnedToStart = false;  // konzumiraj flag
+    return true;
 }

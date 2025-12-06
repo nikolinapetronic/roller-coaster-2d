@@ -12,6 +12,7 @@ struct Seat {
     float localY;    // lokalna pozicija u odnosu na centar vagona (NDC)
     bool occupied;   // da li postoji putnik
     bool beltOn;     // da li je pojas zakopcan
+    bool  sick;      // da li mu je lose 
 };
 
 static const int SEAT_COUNT = 8;
@@ -27,6 +28,7 @@ static float aspect = 1.0f;
 static unsigned int wagonTexture;
 static unsigned int nameplateTexture;
 static unsigned int passengerTexture;
+static unsigned int passengerSickTexture;
 static unsigned int beltTexture;
 
 // sejderi
@@ -69,6 +71,7 @@ static float wagonSegmentHalfHeight = 0.0f;
 static float passengerHalfWidth = 0.0f;
 static float passengerHalfHeight = 0.0f;
 static float seatStepGlobal = 0.0f;
+static bool unloadingPhase = false;  // true kad se voz vratio na pocetak i "ispraznjavamo" putnike
 
 // ------------------ STUBOVI ISPOD PRUGE ------------------
 
@@ -136,6 +139,7 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
     preprocessTexture(wagonTexture, "res/pink_cart.png");
     preprocessTexture(nameplateTexture, "res/nameplate1.png");
     preprocessTexture(passengerTexture, "res/passenger.png");
+    preprocessTexture(passengerSickTexture, "res/passenger_green.png");
     preprocessTexture(beltTexture, "res/seatbelt.png");
 
     // kreiranje shadera
@@ -209,6 +213,7 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
     for (int i = 0; i < SEAT_COUNT; ++i) {
         seats[i].occupied = false;
         seats[i].beltOn = false;
+        seats[i].sick = false;  
 
         // centri: 0.5, 1.5, 2.5, ... , 7.5
         seats[i].localX = seatsLeftX + seatStep * (0.5f + i);
@@ -372,8 +377,8 @@ static void KeyCallback(GLFWwindow* window, int key, int scancode, int action, i
     switch (key)
     {
     case GLFW_KEY_SPACE:
-        // nije dozvoljeno dodavanje putnika u toku voznje
-        if (RC_IsRideRunning())
+        // ne dodaj putnike ako voz vozi ili jos iskrcavamo staru turu
+        if (RC_IsRideRunning() || unloadingPhase)
             break;
         // pronadji prvo slobodno sjediste (naprijed ka nazad)
         // punimo od pocetka vagona ka nazad
@@ -381,6 +386,7 @@ static void KeyCallback(GLFWwindow* window, int key, int scancode, int action, i
             if (!seats[i].occupied) {
                 seats[i].occupied = true;
                 seats[i].beltOn = false;
+                seats[i].sick = false;   // novi putnik nije zelen 
                 break;
             }
         }
@@ -403,11 +409,28 @@ static void KeyCallback(GLFWwindow* window, int key, int scancode, int action, i
     case GLFW_KEY_6:
     case GLFW_KEY_7:
     case GLFW_KEY_8:
-        // TODO: prinudno zaustavljanje
-        break;
+    {
+        if (!RC_IsRideRunning())
+            return;
 
-    default:
+        // signal ima smisla samo dok voz vozi
+        int keyIndex = key - GLFW_KEY_1;
+
+        // 0 = prednje sjediste (seat[7])
+        // 7 = zadnje sjediste (seat[0])
+        int seatNumber = SEAT_COUNT - 1 - keyIndex;
+
+        // ako to sjediste nije zauzeto -> nista
+        if (seatNumber < 0 || seatNumber >= SEAT_COUNT)
+            break;
+        if (!seats[seatNumber].occupied)
+            break;
+
+        // oznaci ga kao "zelenog" i pokreni emergency stop
+        seats[seatNumber].sick = true;
+        RC_RequestEmergencyStop();
         break;
+    }
     }
 }
 
@@ -449,8 +472,29 @@ static void MouseButtonCallback(GLFWwindow* window, int button, int action, int 
         if (mouseNdcX >= cx - passengerHalfWidth && mouseNdcX <= cx + passengerHalfWidth &&
             mouseNdcY >= cy - passengerHalfHeight && mouseNdcY <= cy + passengerHalfHeight) {
 
-            // toggle pojasa za tog putnika
-            seats[i].beltOn = !seats[i].beltOn;
+            if (!unloadingPhase) {
+                // normalni rezim -> vezi / odvezi pojas
+                seats[i].beltOn = !seats[i].beltOn;
+            }
+            else {
+                // u fazi iskrcavanja -> klik ga skida iz voza
+                seats[i].occupied = false;
+                seats[i].beltOn = false;
+                seats[i].sick = false;
+
+                // provjeri da li su svi otisli -> zavrsavamo unloading
+                bool anyOccupied = false;
+                for (int s = 0; s < SEAT_COUNT; ++s) {
+                    if (seats[s].occupied) {
+                        anyOccupied = true;
+                        break;
+                    }
+                }
+                if (!anyOccupied) {
+                    unloadingPhase = false;
+                }
+            }
+
             break; // samo jedan putnik po kliku
         }
     }
@@ -482,7 +526,20 @@ void UpdateScene(GLFWwindow* window, double deltaTime)
 {
     (void)window;
     RC_Update(deltaTime);
+
+    // ako se voz upravo vratio na pocetak (bilo normalno, bilo poslije emergency)
+    if (RC_DidJustReturnToStart()) {
+        // svi se automatski odvezu
+        for (int i = 0; i < SEAT_COUNT; ++i) {
+            if (seats[i].occupied) {
+                seats[i].beltOn = false;
+                // sick flag ne diramo - ostaju zeleni dok ih ne "skinemo"
+            }
+        }
+        unloadingPhase = true;
+    }
 }
+
 
 // ------------------  RenderScene ------------------
 
@@ -537,7 +594,8 @@ void RenderScene()
 
         // prvo crtamo putnika
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, passengerTexture);
+        unsigned int tex = seats[i].sick ? passengerSickTexture : passengerTexture;
+        glBindTexture(GL_TEXTURE_2D, tex);
 
         glUniform1f(uAlphaLocation, 1.0f);
         glUniform1f(uAngleLocation, angle);

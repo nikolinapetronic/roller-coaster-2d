@@ -33,3 +33,6 @@ void RC_GetSeatBasePosAndAngle(int seatIndex,
 
 // pointer na generisane verteks koordinate pruge 
 const float* RC_GetTrackVertices();
+
+void RC_RequestEmergencyStop();
+bool RC_DidJustReturnToStart();
