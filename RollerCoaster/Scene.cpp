@@ -232,10 +232,10 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
 
     // x, y, u, v  
     float wagonVertices[] = {
-        -wagonSegmentWidth,  wagonSegmentHeight, 0.0f, 1.0f,
-        -wagonSegmentWidth, -wagonSegmentHeight, 0.0f, 0.0f,
-         wagonSegmentWidth, -wagonSegmentHeight, 1.0f, 0.0f,
-         wagonSegmentWidth,  wagonSegmentHeight, 1.0f, 1.0f
+    -wagonSegmentWidth,  2.0f * wagonSegmentHeight, 0.0f, 1.0f, // gornje lijevo
+    -wagonSegmentWidth,  0.0f,                      0.0f, 0.0f, // donje lijevo
+     wagonSegmentWidth,  0.0f,                      1.0f, 0.0f, // donje desno
+     wagonSegmentWidth,  2.0f * wagonSegmentHeight, 1.0f, 1.0f  // gornje desno
     };
 
     glGenVertexArrays(1, &VAO);
@@ -463,15 +463,20 @@ static void MouseButtonCallback(GLFWwindow* window, int button, int action, int 
     for (int i = 0; i < SEAT_COUNT; ++i) {
         if (!seats[i].occupied) continue; // ako nema putnika, nista
 
-        const float wagonYOffset = wagonSegmentHeight;
-        const float passengerYOffset = wagonYOffset + wagonSegmentHeight * 0.8f ;
+        const float passengerHeightFromBase = wagonSegmentHeight * 1.2f;
 
         float sx, sy, angle;
         RC_GetSeatBasePosAndAngle(i, sx, sy, angle);
 
         // centar putnika
-        float cx = sx + passengerOffsetX;
-        float cy = sy + passengerYOffset;
+        float localX = passengerOffsetX;
+        float localY = passengerHeightFromBase;
+
+        float c = std::cos(angle);
+        float s = std::sin(angle);
+
+        float cx = sx + localX * c - localY * s;
+        float cy = sy + localX * s + localY * c;
 
         if (mouseNdcX >= cx - passengerHalfWidth && mouseNdcX <= cx + passengerHalfWidth &&
             mouseNdcY >= cy - passengerHalfHeight && mouseNdcY <= cy + passengerHalfHeight) {
@@ -573,14 +578,13 @@ void RenderScene()
 
     glBindVertexArray(VAO);
 
-    const float wagonYOffset = wagonSegmentHeight;
 
     for (int i = 0; i < SEAT_COUNT; ++i) {
         float sx, sy, angle;
         RC_GetSeatBasePosAndAngle(i, sx, sy, angle);
 
         glUniform1f(uAngleLocation, angle);
-        glUniform2f(uOffsetLocation, sx, sy + wagonYOffset);
+        glUniform2f(uOffsetLocation, sx, sy);  // pivot na pruzi, dno vagona
         glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
     }
 
@@ -589,7 +593,8 @@ void RenderScene()
     glUseProgram(basicShader);
     glBindVertexArray(VAOPassenger);
 
-    const float passengerYOffset = wagonYOffset + wagonSegmentHeight * 0.2f;
+    // koliko iznad dna vagona je centar putnika 
+    const float passengerHeightFromBase = wagonSegmentHeight * 1.2f;
 
     for (int i = 0; i < SEAT_COUNT; ++i) {
         if (!seats[i].occupied) continue;
@@ -598,8 +603,14 @@ void RenderScene()
         RC_GetSeatBasePosAndAngle(i, sx, sy, angle);
 
         // lokalni pomjeraj putnika (blago ulijevo u odnosu na sjediste)
-        float px = sx + passengerOffsetX;
-        float py = sy + passengerYOffset;
+        float localX = passengerOffsetX;          // malo ulijevo
+        float localY = passengerHeightFromBase;   // iznad dna vagona
+
+        float c = std::cos(angle);
+        float s = std::sin(angle);
+
+        float px = sx + localX * c - localY * s;
+        float py = sy + localX * s + localY * c;
 
         // prvo crtamo putnika
         glActiveTexture(GL_TEXTURE0);
