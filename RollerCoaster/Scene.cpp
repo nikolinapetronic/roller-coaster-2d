@@ -56,23 +56,24 @@ static unsigned int VBOPassenger;
 
 // geometrija vagona
 // visina vagona na ekranu
-static float cartHalfHeight = 0.21f;
+static float cartHeight = 0.21f;
 // faktor koliko je sirina veca od visine (npr. 3x)
-static float cartShapeRatio = 1.7f;
+static float cartShapeRatio = 2.7f;
 // sirina korigovana aspect-om i oblikom
-static float cartHalfWidth = 0.0f;
+static float cartWidth = 0.0f;
 
 // geometrija malog kvadrata vozila (segment ispod jednog sjedista)
-static float wagonSegmentHalfWidth = 0.0f;
-static float wagonSegmentHalfHeight = 0.0f;
+static float wagonSegmentWidth = 0.0f;
+static float wagonSegmentHeight = 0.0f;
 
 // geometrija putnika
 // putnik malo uzi od vagona
 static float passengerHalfWidth = 0.0f;
 static float passengerHalfHeight = 0.0f;
-static float seatStepGlobal = 0.0f;
 static bool unloadingPhase = false;  // true kad se voz vratio na pocetak i "ispraznjavamo" putnike
 static bool emergencyInProgress = false;
+// lokalno pomjeranje putnika u odnosu na centar sjedista (NDC)
+static const float passengerOffsetX = -0.01f;   // malo ulijevo
 
 // ------------------ STUBOVI ISPOD PRUGE ------------------
 
@@ -139,8 +140,8 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
     // ucitavanje tekstura
     preprocessTexture(wagonTexture, "res/pink_cart.png");
     preprocessTexture(nameplateTexture, "res/nameplate1.png");
-    preprocessTexture(passengerTexture, "res/passenger.png");
-    preprocessTexture(passengerSickTexture, "res/passenger_green.png");
+    preprocessTexture(passengerTexture, "res/passenger1.png");
+    preprocessTexture(passengerSickTexture, "res/passenger_green1.png");
     preprocessTexture(beltTexture, "res/seatbelt.png");
 
     // kreiranje shadera
@@ -179,18 +180,18 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
     // ----------------- Geometrija vozila + 8 sjedista -----------------
 
     // visina vagona na ekranu
-    cartHalfHeight = 0.21f;
+    cartHeight = 0.21f;
     // faktor koliko je sirina veca od visine
     cartShapeRatio = 1.7f;
     // sirina korigovana aspect-om i oblikom
-    cartHalfWidth = cartHalfHeight * cartShapeRatio * aspect;
+    cartWidth = cartHeight * cartShapeRatio * aspect;
 
     // ----------------- Inicijalizacija 8 sjedista (1 red) -----------------
-    float innerMargin = 0.25f;
+    float innerMargin = 0.15f;
 
     // lijeva i desna granica unutrasnjosti vagona
-    float seatsLeftX = -cartHalfWidth * (1.0f - innerMargin);
-    float seatsRightX = cartHalfWidth * (1.0f - innerMargin);
+    float seatsLeftX = -cartWidth * (1.0f - innerMargin);
+    float seatsRightX = cartWidth * (1.0f - innerMargin);
 
     // rucno pomjeranje cijelog reda sjedista malo ulijevo
     float seatShiftX = -0.01f;
@@ -203,13 +204,12 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
     // razmak izmedju centara sjedista
     // dijeljenje sa SEAT_COUNT i pomjeranje za pola koraka da prvi/poslednji nisu skroz uz ivicu
     float seatStep = seatSpan / SEAT_COUNT;
-    seatStepGlobal = seatStep;
-
+ 
     // ----------------- Parametri kompozicije po stazi -----------------
-    RC_InitMotion(trackXMin, trackXMax, seatStepGlobal, SEAT_COUNT);
+    RC_InitMotion(trackXMin, trackXMax, seatStep, SEAT_COUNT);
 
     // visina sjedista unutar vagona (po y-osi)
-    float seatsY = cartHalfHeight * 0.3f;
+    float seatsY = cartHeight * 0.3f;
 
     for (int i = 0; i < SEAT_COUNT; ++i) {
         seats[i].occupied = false;
@@ -225,17 +225,17 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
     // svaki kvadrat ce biti centriran ispod jednog sjedista
 
     // visina kvadrata (po y), u NDC
-    wagonSegmentHalfHeight = cartHalfHeight * 0.45f;
+    wagonSegmentHeight = cartHeight * 0.25f;
 
     // sirina vezana za razmak izmedju sjedista
-    wagonSegmentHalfWidth = seatStepGlobal * 0.7f;
+    wagonSegmentWidth = seatStep * 0.65f;
 
     // x, y, u, v  
     float wagonVertices[] = {
-        -wagonSegmentHalfWidth,  wagonSegmentHalfHeight, 0.0f, 1.0f,
-        -wagonSegmentHalfWidth, -wagonSegmentHalfHeight, 0.0f, 0.0f,
-         wagonSegmentHalfWidth, -wagonSegmentHalfHeight, 1.0f, 0.0f,
-         wagonSegmentHalfWidth,  wagonSegmentHalfHeight, 1.0f, 1.0f
+        -wagonSegmentWidth,  wagonSegmentHeight, 0.0f, 1.0f,
+        -wagonSegmentWidth, -wagonSegmentHeight, 0.0f, 0.0f,
+         wagonSegmentWidth, -wagonSegmentHeight, 1.0f, 0.0f,
+         wagonSegmentWidth,  wagonSegmentHeight, 1.0f, 1.0f
     };
 
     glGenVertexArrays(1, &VAO);
@@ -334,8 +334,8 @@ void InitScene(GLFWwindow* window, int screenWidth, int screenHeight)
     // ------------------ VAO/VBO za putnika/pojas ------------------
     // putnik malo uzi i nizi od samog vagona
 
-    passengerHalfWidth = wagonSegmentHalfWidth * 0.7f;
-    passengerHalfHeight = wagonSegmentHalfHeight * 0.6f;
+    passengerHalfWidth = wagonSegmentWidth * 0.7f;
+    passengerHalfHeight = wagonSegmentHeight * 0.6f;
 
     float passengerVertices[] = {
         -passengerHalfWidth,  passengerHalfHeight, 0.0f, 1.0f, // gornje lijevo
@@ -463,14 +463,14 @@ static void MouseButtonCallback(GLFWwindow* window, int button, int action, int 
     for (int i = 0; i < SEAT_COUNT; ++i) {
         if (!seats[i].occupied) continue; // ako nema putnika, nista
 
-        const float wagonYOffset = wagonSegmentHalfHeight;
-        const float passengerYOffset = wagonYOffset + wagonSegmentHalfHeight * 0.3f;
+        const float wagonYOffset = wagonSegmentHeight;
+        const float passengerYOffset = wagonYOffset + wagonSegmentHeight * 0.8f ;
 
         float sx, sy, angle;
         RC_GetSeatBasePosAndAngle(i, sx, sy, angle);
 
         // centar putnika
-        float cx = sx;
+        float cx = sx + passengerOffsetX;
         float cy = sy + passengerYOffset;
 
         if (mouseNdcX >= cx - passengerHalfWidth && mouseNdcX <= cx + passengerHalfWidth &&
@@ -573,7 +573,7 @@ void RenderScene()
 
     glBindVertexArray(VAO);
 
-    const float wagonYOffset = wagonSegmentHalfHeight;
+    const float wagonYOffset = wagonSegmentHeight;
 
     for (int i = 0; i < SEAT_COUNT; ++i) {
         float sx, sy, angle;
@@ -589,13 +589,17 @@ void RenderScene()
     glUseProgram(basicShader);
     glBindVertexArray(VAOPassenger);
 
-    const float passengerYOffset = wagonYOffset + wagonSegmentHalfHeight * 0.3f;
+    const float passengerYOffset = wagonYOffset + wagonSegmentHeight * 0.2f;
 
     for (int i = 0; i < SEAT_COUNT; ++i) {
         if (!seats[i].occupied) continue;
         // svako sjediste ima svoju lokalnu poziciju u odnosu na vagon
         float sx, sy, angle;
         RC_GetSeatBasePosAndAngle(i, sx, sy, angle);
+
+        // lokalni pomjeraj putnika (blago ulijevo u odnosu na sjediste)
+        float px = sx + passengerOffsetX;
+        float py = sy + passengerYOffset;
 
         // prvo crtamo putnika
         glActiveTexture(GL_TEXTURE0);
@@ -604,18 +608,18 @@ void RenderScene()
 
         glUniform1f(uAlphaLocation, 1.0f);
         glUniform1f(uAngleLocation, angle);
-        glUniform2f(uOffsetLocation, sx, sy + passengerYOffset);
-
+        glUniform2f(uOffsetLocation, px, py);
         glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 
-        // ako je pojas zakacen, crtamo pojaseve preko putnika
+        // ako je pojas zakacen, crtamo pojas preko istog centra
         if (seats[i].beltOn) {
             glBindTexture(GL_TEXTURE_2D, beltTexture);
-            // isti offset, isti VAO, samo druga tekstura
             glUniform1f(uAlphaLocation, 1.0f);
             glUniform1f(uAngleLocation, angle);
+            glUniform2f(uOffsetLocation, px, py);
             glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
         }
+
     }
 
 
