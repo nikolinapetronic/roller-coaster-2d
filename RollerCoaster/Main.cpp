@@ -58,7 +58,7 @@ int main()
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     // postavljanje boje pozadine
-    glClearColor(0.68f, 0.85f, 0.90f, 1.0f);
+    glClearColor(0.39f, 0.74f, 0.97f, 1.0f);
 
     // inicijalizacija scene
     InitScene(window, screenWidth, screenHeight);

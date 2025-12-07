@@ -555,7 +555,7 @@ void RenderScene()
     // crtanje pruge - jedna glatka kriva sa ravnim dijelovima
     glUseProgram(trackShader);
     // tamno siva boja
-    glUniform3f(uTrackColorLocation, 0.2f, 0.2f, 0.2f);
+    glUniform3f(uTrackColorLocation, 0.8f, 1.0f, 1.0f);
 
     glBindVertexArray(VAOTrack);
     glDrawArrays(GL_LINE_STRIP, 0, RC_TRACK_POINT_COUNT);

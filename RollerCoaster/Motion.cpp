@@ -165,14 +165,14 @@ void RC_InitMotion(float trackXMin,
     g_seatStepNDC = seatStep;
 
     // --------- generisanje pruge i akumulisane duzine ---------
-    float y_start = -0.5f;
+    float y_start = -0.3f;
     float y_mid_valley1 = -0.3f;
     float y_peak1 = 0.2f;
-    float y_mid_valley2 = -0.4f;
-    float y_peak2 = 0.5f;
+    float y_mid_valley2 = -0.25f;
+    float y_peak2 = 0.35f;
     float y_mid_valley3 = -0.2f;
-    float y_peak3 = 0.3f;
-    float y_end = -0.02f;
+    float y_peak3 = 0.15f;
+    float y_end = -0.001f;
 
     // segmenti po X - gdje prelazimo na naredni Bezier
     float x_segments[] = {
@@ -188,7 +188,7 @@ void RC_InitMotion(float trackXMin,
 
     float current_P0 = y_start;
     float current_P1 = y_start + 0.05f;
-    float current_P2 = y_start + 0.15f;
+    float current_P2 = y_start + 0.05f;
     float current_P3;
 
     float prevX = 0.0f, prevY = 0.0f;
