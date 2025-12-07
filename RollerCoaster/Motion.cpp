@@ -19,23 +19,23 @@ static bool  g_emergencyRequested = false;
 static bool  g_justReturnedToStart = false;
 
 static const float EMERGENCY_DECEL = 0.08f;  // koliko brzo koci kad se nekom slosi
-static const float RETURN_SPEED = 0.04f;  // mala konst. brzina nazad
-static const float SICK_STOP_DURATION = 10.0f;  // 10 sekundi pauze
+static const float RETURN_SPEED = 0.02f;  // mala konst. brzina nazad
+static const float EMERGENCY_STOP_DURATION = 10.0f;  // 10 sekundi pauze
 
 static double g_stopTimer = 0.0;
 
 // broj segmenata pruge i izvedeni broj tacaka
 // (ukupno se crta RC_TRACK_POINT_COUNT tacaka)
-const int RC_TRACK_SEGMENTS = 2000;
+const int RC_TRACK_SEGMENTS = 5000;
 const int RC_TRACK_POINT_COUNT = RC_TRACK_SEGMENTS + 1;
 
 // brzina ubrzavanja i maksimalna brzina voznje
 static const float RIDE_ACCEL = 0.02f;
-static const float RIDE_MAX_SPEED = 0.15f; 
+static const float RIDE_MAX_SPEED = 1.15f; 
 
-static const float RIDE_SLOPE_ACCEL = 1.2f;   // koliko jako nagib utice na ubrzanje
+static const float RIDE_SLOPE_ACCEL = 0.6f;   // koliko jako nagib utice na ubrzanje
 static const float RIDE_MIN_SPEED = 0.01f;  // minimalna brzina koja se smatra kretanjem
-static const float RIDE_MAX_SLOPE_SPEED = 0.60f; // apsolutni max, i nizbrdo
+static const float RIDE_MAX_SLOPE_SPEED = 1.60f; // apsolutni max, i nizbrdo
 
 // ------------------ GLOBALNO STANJE MODULA ------------------
 // opseg pruge po x-osi (NDC)
@@ -98,7 +98,7 @@ static void SampleTrack(float param, float& outX, float& outY, float& outAngle)
     float angle = std::atan2(dy, dx);
 
     // ogranicenje maksimalnog nagiba da se kompozicija ne "prevrce"
-    const float maxAngleDeg = 20.0f;
+    const float maxAngleDeg = 10.0f;
     const float maxAngleRad = maxAngleDeg * (float)M_PI / 180.0f;
     if (angle > maxAngleRad) angle = maxAngleRad;
     if (angle < -maxAngleRad) angle = -maxAngleRad;
@@ -367,12 +367,12 @@ void RC_Update(double deltaTime)
         g_trackParam += g_rideSpeed * dt;
 
         // stigli do kraja -> automatski prelazimo u povratak na pocetak
-        if (g_trackParam >= g_trackParamEnd) {
+        /*if (g_trackParam >= g_trackParamEnd) {
             g_trackParam = g_trackParamEnd;
             g_state = RideState::ReturningToStart;
             g_rideSpeed = -RETURN_SPEED;
             g_isRideRunning = true;
-        }
+        }*/
         break;
     }
 
@@ -399,7 +399,7 @@ void RC_Update(double deltaTime)
     case RideState::StoppedForSick:
         g_isRideRunning = false;
         g_stopTimer += deltaTime;
-        if (g_stopTimer >= SICK_STOP_DURATION) {
+        if (g_stopTimer >= EMERGENCY_STOP_DURATION) {
             g_state = RideState::ReturningToStart;
             g_isRideRunning = true;
             g_rideSpeed = -RETURN_SPEED;
