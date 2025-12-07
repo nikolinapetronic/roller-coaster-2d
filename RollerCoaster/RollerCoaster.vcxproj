@@ -124,22 +124,30 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="CartRenderer.cpp" />
     <ClCompile Include="Main.cpp" />
-    <ClCompile Include="Motion.cpp" />
+    <ClCompile Include="PassengerRenderer.cpp" />
+    <ClCompile Include="Passengers.cpp" />
+    <ClCompile Include="RideMotion.cpp" />
     <ClCompile Include="Scene.cpp" />
+    <ClCompile Include="TrackRenderer.cpp" />
     <ClCompile Include="Util.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="basic.frag" />
-    <None Include="basic.vert" />
+    <None Include="textured_alpha.frag" />
+    <None Include="textured_alpha.vert" />
     <None Include="packages.config" />
-    <None Include="track.frag" />
-    <None Include="track.vert" />
+    <None Include="solid_color.frag" />
+    <None Include="solid_color.vert" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="Motion.h" />
+    <ClInclude Include="CartRenderer.h" />
+    <ClInclude Include="PassengerRenderer.h" />
+    <ClInclude Include="Passengers.h" />
+    <ClInclude Include="RideMotion.h" />
     <ClInclude Include="Scene.h" />
     <ClInclude Include="stb_image.h" />
+    <ClInclude Include="TrackRenderer.h" />
     <ClInclude Include="Util.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

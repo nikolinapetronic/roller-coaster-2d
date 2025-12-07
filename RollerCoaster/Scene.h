@@ -4,13 +4,13 @@
 #include <GLFW/glfw3.h>
 
 // inicijalizacija svih OpenGL resura i scene
-void InitScene(GLFWwindow* window, int screenWidth, int screenHeight);
+void initScene(GLFWwindow* window, int screenWidth, int screenHeight);
 
 // azuriranje logike (input, kretanje, toggle pojaseva...)
-void UpdateScene(GLFWwindow* window, double deltaTime);
+void updateScene(GLFWwindow* window, double deltaTime);
 
 // iscrtavanje svega (pruga, stubovi, vagon, putnici, pojasevi, nameplate)
-void RenderScene();
+void renderScene();
 
 // oslobadjanje OpenGL resursa
-void CleanupScene();
+void cleanupScene();

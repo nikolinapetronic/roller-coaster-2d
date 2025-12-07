@@ -61,7 +61,7 @@ int main()
     glClearColor(0.39f, 0.74f, 0.97f, 1.0f);
 
     // inicijalizacija scene
-    InitScene(window, screenWidth, screenHeight);
+    initScene(window, screenWidth, screenHeight);
 
     // FPS limiter i delta time
     const double TARGET_FPS = 75.0;
@@ -81,10 +81,10 @@ int main()
         }
 
         // logika: unos, pomjeranje, pojasevi, putnici...
-        UpdateScene(window, deltaTime);
+        updateScene(window, deltaTime);
 
         // iscrtavanje
-        RenderScene();
+        renderScene();
 
         glfwSwapBuffers(window);
         glfwPollEvents();
@@ -100,7 +100,7 @@ int main()
     }
 
     // terminacija
-    CleanupScene();
+    cleanupScene();
     glfwDestroyWindow(window);
     glfwTerminate();
     return 0;

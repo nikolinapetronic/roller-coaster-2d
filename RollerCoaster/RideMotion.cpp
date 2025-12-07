@@ -1,5 +1,5 @@
 #define _USE_MATH_DEFINES
-#include "Motion.h"
+#include "RideMotion.h"
 
 #include <cmath>
 
@@ -18,16 +18,11 @@ static RideState g_state = RideState::AtStartIdle;
 static bool  g_emergencyRequested = false;
 static bool  g_justReturnedToStart = false;
 
-static const float EMERGENCY_DECEL = 0.08f;  // koliko brzo koci kad se nekom slosi
+static const float EMERGENCY_DECEL = 0.1f;  // koliko brzo koci kad se nekom slosi
 static const float RETURN_SPEED = 0.02f;  // mala konst. brzina nazad
-static const float EMERGENCY_STOP_DURATION = 10.0f;  // 10 sekundi pauze
+static const float EMERGENCY_STOP_DURATION = 1.0f;  // 10 sekundi pauze
 
 static double g_stopTimer = 0.0;
-
-// broj segmenata pruge i izvedeni broj tacaka
-// (ukupno se crta RC_TRACK_POINT_COUNT tacaka)
-const int RC_TRACK_SEGMENTS = 5000;
-const int RC_TRACK_POINT_COUNT = RC_TRACK_SEGMENTS + 1;
 
 // brzina ubrzavanja i maksimalna brzina voznje
 static const float RIDE_ACCEL = 0.02f;
@@ -43,8 +38,8 @@ static float g_trackXMin = -0.9f;
 static float g_trackXMax = 0.9f;
 
 // niz verteksa za prugu (x,y) -> 2 float-a po tacki
-static float g_trackVertices[RC_TRACK_POINT_COUNT * 2];
-static float g_trackArcLengths[RC_TRACK_POINT_COUNT];
+static float g_trackVertices[TRACK_POINT_COUNT * 2];
+static float g_trackArcLengths[TRACK_POINT_COUNT];
 static float g_totalTrackLength = 0.0f;
 
 // trenutno stanje voznje po parametru (0-1)
@@ -63,7 +58,7 @@ static float g_trackParamEnd = 1.0f;
 // ------------------ POMOCNE FUNKCIJE ---------------------------
 
 // osnovni Bezier cubic evaluator za Y koordinatu pruge
-static float BezierY(float t, float p0, float p1, float p2, float p3)
+static float bezierY(float t, float p0, float p1, float p2, float p3)
 {
     float u = 1.0f - t;
     return u * u * u * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t * p3;
@@ -72,16 +67,16 @@ static float BezierY(float t, float p0, float p1, float p2, float p3)
 // uzorkovanje pruge prema parametru (0-1)
 // vraca interpolisani (x,y) i ugao tangente (nagib pruge)
 // ugao se ogranicava zbog stabilnosti
-static void SampleTrack(float param, float& outX, float& outY, float& outAngle)
+static void sampleTrack(float param, float& outX, float& outY, float& outAngle)
 {
     // clamp parametra
     if (param < 0.0f) param = 0.0f;
     if (param > 1.0f) param = 1.0f;
 
-    float fIndex = param * (RC_TRACK_POINT_COUNT - 1);
+    float fIndex = param * (TRACK_POINT_COUNT - 1);
     int i0 = (int)std::floor(fIndex);
     int i1 = i0 + 1;
-    if (i1 >= RC_TRACK_POINT_COUNT) i1 = RC_TRACK_POINT_COUNT - 1;
+    if (i1 >= TRACK_POINT_COUNT) i1 = TRACK_POINT_COUNT - 1;
 
     float localT = fIndex - (float)i0;
 
@@ -116,45 +111,45 @@ static void SampleTrack(float param, float& outX, float& outY, float& outAngle)
 }
 
 // nalazi parametar za datu DUZINU od pocetka staze (0 je pocetak)
-static float GetParamAtArcLengthFromStart(float targetLen)
+static float getParamAtArcLengthFromStart(float targetLen)
 {
     if (targetLen <= 0.0f)            return 0.0f;
     if (targetLen >= g_totalTrackLength) return 1.0f;
 
     int i = 1;
-    while (i < RC_TRACK_POINT_COUNT && g_trackArcLengths[i] < targetLen)
+    while (i < TRACK_POINT_COUNT && g_trackArcLengths[i] < targetLen)
         ++i;
 
     int i0 = i - 1;
     int i1 = i;
-    if (i1 >= RC_TRACK_POINT_COUNT) i1 = RC_TRACK_POINT_COUNT - 1;
+    if (i1 >= TRACK_POINT_COUNT) i1 = TRACK_POINT_COUNT - 1;
 
     float l0 = g_trackArcLengths[i0];
     float l1 = g_trackArcLengths[i1];
     float t = (l1 > l0) ? (targetLen - l0) / (l1 - l0) : 0.0f;
 
-    return (i0 + t) / (float)(RC_TRACK_POINT_COUNT - 1);
+    return (i0 + t) / (float)(TRACK_POINT_COUNT - 1);
 }
 
 // vraca parametar koji je "backDistance" unazad od currentParam po REALNOJ duzini
-static float GetParamAtArcLengthBackwards(float currentParam, float backDistance)
+static float getParamAtArcLengthBackwards(float currentParam, float backDistance)
 {
     // trenutna duzina od pocetka
-    float currentIndexF = currentParam * (RC_TRACK_POINT_COUNT - 1);
+    float currentIndexF = currentParam * (TRACK_POINT_COUNT - 1);
     int   currentIndex = (int)std::floor(currentIndexF);
     if (currentIndex < 0) currentIndex = 0;
-    if (currentIndex >= RC_TRACK_POINT_COUNT) currentIndex = RC_TRACK_POINT_COUNT - 1;
+    if (currentIndex >= TRACK_POINT_COUNT) currentIndex = TRACK_POINT_COUNT - 1;
 
     float currentLength = g_trackArcLengths[currentIndex];
     float targetLen = currentLength - backDistance;
     if (targetLen < 0.0f) targetLen = 0.0f;
 
-    return GetParamAtArcLengthFromStart(targetLen);
+    return getParamAtArcLengthFromStart(targetLen);
 }
 
 // ------------------------ API ---------------------------------
 
-void RC_InitMotion(float trackXMin,
+void initRideMotion(float trackXMin,
     float trackXMax,
     float seatStep,
     int   seatCount)
@@ -194,9 +189,9 @@ void RC_InitMotion(float trackXMin,
     float prevX = 0.0f, prevY = 0.0f;
     g_totalTrackLength = 0.0f;
 
-    for (int i = 0; i <= RC_TRACK_SEGMENTS; ++i)
+    for (int i = 0; i <= TRACK_SEGMENTS; ++i)
     {
-        float t = i / (float)RC_TRACK_SEGMENTS;
+        float t = i / (float)TRACK_SEGMENTS;
         float x = g_trackXMin + (g_trackXMax - g_trackXMin) * t;
         float y;
 
@@ -207,7 +202,7 @@ void RC_InitMotion(float trackXMin,
             current_P1 = y_start + 0.1f;
             current_P2 = y_peak1 - 0.1f;
             current_P3 = y_peak1;
-            y = BezierY(u, current_P0, current_P1, current_P2, current_P3);
+            y = bezierY(u, current_P0, current_P1, current_P2, current_P3);
         }
         // peak1 -> valley2
         else if (t <= x_segments[2]) {
@@ -216,7 +211,7 @@ void RC_InitMotion(float trackXMin,
             current_P1 = current_P0 + (current_P0 - (y_peak1 - 0.1f));
             current_P2 = y_mid_valley2 + 0.1f;
             current_P3 = y_mid_valley2;
-            y = BezierY(u, current_P0, current_P1, current_P2, current_P3);
+            y = bezierY(u, current_P0, current_P1, current_P2, current_P3);
         }
         // valley2 -> peak2
         else if (t <= x_segments[3]) {
@@ -225,7 +220,7 @@ void RC_InitMotion(float trackXMin,
             current_P1 = current_P0 + (current_P0 - (y_mid_valley2 + 0.1f));
             current_P2 = y_peak2 - 0.15f;
             current_P3 = y_peak2;
-            y = BezierY(u, current_P0, current_P1, current_P2, current_P3);
+            y = bezierY(u, current_P0, current_P1, current_P2, current_P3);
         }
         // peak2 -> valley3
         else if (t <= x_segments[4]) {
@@ -234,7 +229,7 @@ void RC_InitMotion(float trackXMin,
             current_P1 = current_P0 + (current_P0 - (y_peak2 - 0.15f));
             current_P2 = y_mid_valley3 + 0.05f;
             current_P3 = y_mid_valley3;
-            y = BezierY(u, current_P0, current_P1, current_P2, current_P3);
+            y = bezierY(u, current_P0, current_P1, current_P2, current_P3);
         }
         // valley3 -> peak3
         else if (t <= x_segments[5]) {
@@ -243,7 +238,7 @@ void RC_InitMotion(float trackXMin,
             current_P1 = current_P0 + (current_P0 - (y_mid_valley3 + 0.05f));
             current_P2 = y_peak3 - 0.1f;
             current_P3 = y_peak3;
-            y = BezierY(u, current_P0, current_P1, current_P2, current_P3);
+            y = bezierY(u, current_P0, current_P1, current_P2, current_P3);
         }
         // peak3 -> end
         else {
@@ -252,7 +247,7 @@ void RC_InitMotion(float trackXMin,
             current_P1 = current_P0 + (current_P0 - (y_peak3 - 0.1f));
             current_P2 = y_end + 0.05f;
             current_P3 = y_end;
-            y = BezierY(u, current_P0, current_P1, current_P2, current_P3);
+            y = bezierY(u, current_P0, current_P1, current_P2, current_P3);
         }
 
         // upisujemo tacku u globalni niz verteksa
@@ -284,7 +279,7 @@ void RC_InitMotion(float trackXMin,
     // zadnji vagon (seatIndex 0) -> pocetak pruge (duzina = 0)
     // prvi vagon (seatIndex 7)   -> na duzini g_trainLen od pocetka
     float frontLen = g_trainLen;
-    g_trackParamStart = GetParamAtArcLengthFromStart(frontLen);
+    g_trackParamStart = getParamAtArcLengthFromStart(frontLen);
     g_trackParamEnd = 1.0f;
     g_trackParam = g_trackParamStart;
 
@@ -298,7 +293,7 @@ void RC_InitMotion(float trackXMin,
 }
 
 // stanje
-bool RC_IsRideRunning()
+bool isRideRunning()
 {
     return g_isRideRunning;
 }
@@ -306,7 +301,7 @@ bool RC_IsRideRunning()
 // pokusavamo pokrenuti voznju samo ako:
 // - trenutno ne vozi
 // - canStart je true (provjera iz Scene.cpp)
-void RC_TryStartRide(bool canStart)
+void tryStartRide(bool canStart)
 {
     if (!canStart)
         return;
@@ -326,7 +321,7 @@ void RC_TryStartRide(bool canStart)
 }
 
 // glavni update
-void RC_Update(double deltaTime)
+void updateRide(double deltaTime)
 {
     float dt = (float)deltaTime;
 
@@ -354,7 +349,7 @@ void RC_Update(double deltaTime)
 
         // normalna “gravitaciona” fizika
         float xCurr, yCurr, angleCurr;
-        SampleTrack(g_trackParam, xCurr, yCurr, angleCurr);
+        sampleTrack(g_trackParam, xCurr, yCurr, angleCurr);
 
         float slopeFactor = std::sin(angleCurr);
         g_rideSpeed += RIDE_SLOPE_ACCEL * (-slopeFactor) * dt;
@@ -424,12 +419,12 @@ void RC_Update(double deltaTime)
 
     // ugao za crtanje vagona (zavisno od trenutnog parametra)
     float x, y, angle;
-    SampleTrack(g_trackParam, x, y, angle);
+    sampleTrack(g_trackParam, x, y, angle);
     g_cartAngle = angle;
 }
 
 // bazna pozicija sjedista N, ukljucujuci ugao pruge u toj tacki
-void RC_GetSeatBasePosAndAngle(int seatIndex,
+void getSeatBasePositionAndAngle(int seatIndex,
     float& sx,
     float& sy,
     float& angle)
@@ -439,19 +434,19 @@ void RC_GetSeatBasePosAndAngle(int seatIndex,
     int seatOrderIndex = g_seatCount - 1 - seatIndex;
     // sjediste je pomjereno unazad po parametru
     float backDist = seatOrderIndex * g_seatStepLen;
-    float seatParam = GetParamAtArcLengthBackwards(g_trackParam, backDist);
+    float seatParam = getParamAtArcLengthBackwards(g_trackParam, backDist);
 
     // uzorkujemo tacku na pruzi
-    SampleTrack(seatParam, sx, sy, angle);
+    sampleTrack(seatParam, sx, sy, angle);
 }
 
 // vracamo pointer na sve tacke pruge (za OpenGL VBO/VAO)
-const float* RC_GetTrackVertices()
+const float* getTrackVertices()
 {
     return g_trackVertices;
 }
 
-void RC_RequestEmergencyStop()
+void requestEmergencyStop()
 {
     // emergency smije samo dok normalno vozimo naprijed
     if (!g_isRideRunning)
@@ -462,7 +457,7 @@ void RC_RequestEmergencyStop()
     g_emergencyRequested = true;
 }
 
-bool RC_DidJustReturnToStart()
+bool didJustReturnToStart()
 {
     if (!g_justReturnedToStart)
         return false;
