@@ -17,7 +17,7 @@ static int screenHeightGlobal = 800;
 static float aspect = 1.0f;
 
 // teksture
-static unsigned int wagonTexture;
+static unsigned int cartTexture;
 static unsigned int nameplateTexture;
 static unsigned int passengerTexture;
 static unsigned int passengerSickTexture;
@@ -42,8 +42,8 @@ static float cartWidth = 0.0f;
 
 // ------------------ PARAMETRI PRUGE U NDC ------------------
 
-static float trackXMin = -0.9f;
-static float trackXMax = 0.9f;
+static float trackXMin = -0.95f;
+static float trackXMax = 0.95f;
 
 // ------------------ POMOCNE FUNKCIJE ------------------
 
@@ -95,7 +95,7 @@ void initScene(GLFWwindow* window, int screenWidth, int screenHeight)
     }
 
     // ucitavanje tekstura
-    preprocessTexture(wagonTexture, "res/pink_cart.png");
+    preprocessTexture(cartTexture, "res/pink_cart.png");
     preprocessTexture(nameplateTexture, "res/nameplate1.png");
     preprocessTexture(passengerTexture, "res/passenger1.png");
     preprocessTexture(passengerSickTexture, "res/passenger_green1.png");
@@ -172,7 +172,7 @@ void initScene(GLFWwindow* window, int screenWidth, int screenHeight)
         cartShapeRatio,
         aspect,
         seatStep,
-        wagonTexture,
+        cartTexture,
         nameplateTexture,
         texturedAlphaShader,
         uOffsetLocation,
@@ -207,14 +207,14 @@ static void keyCallback(GLFWwindow* window, int key, int scancode, int action, i
     switch (key)
     {
     case GLFW_KEY_SPACE:
-        // logika dodavanja putnika izmjestena u Passengers modul
-        tryAddPassengerFromBack();
+        // logika dodavanja putnika 
+        addPassengers();
         break;
 
     case GLFW_KEY_ENTER:
     {
         // pokusaj da pokrenes voznju
-        bool canStart = areAllOccupiedSeatsBelted();
+        bool canStart = areAllSeatsFastened();
         tryStartRide(canStart);
         break;
     }
@@ -230,7 +230,7 @@ static void keyCallback(GLFWwindow* window, int key, int scancode, int action, i
     case GLFW_KEY_8:
     {
         int keyIndex = key - GLFW_KEY_1;
-        handleSickKeyFromFrontIndex(keyIndex);
+        handleSickKey(keyIndex);
         break;
     }
     }

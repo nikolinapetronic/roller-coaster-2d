@@ -23,6 +23,6 @@ void renderNameplate();
 // oslobadjanje VAO/VBO resursa
 void cleanupCartRenderer();
 
-// pomocne funkcije za druge module (npr. PassengerRenderer)
-float getWagonSegmentHeight();
-float getWagonSegmentWidth();
+// pomocne funkcije 
+float getCartSegmentHeight();
+float getCartSegmentWidth();

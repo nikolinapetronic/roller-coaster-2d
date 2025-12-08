@@ -80,7 +80,7 @@ int main()
             glfwSetWindowShouldClose(window, true);
         }
 
-        // logika: unos, pomjeranje, pojasevi, putnici...
+        // logika
         updateScene(window, deltaTime);
 
         // iscrtavanje

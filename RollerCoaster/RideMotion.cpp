@@ -13,16 +13,16 @@ enum class RideState {
     ReturningToStart
 };
 
-static RideState g_state = RideState::AtStartIdle;
+static RideState state = RideState::AtStartIdle;
 
-static bool  g_emergencyRequested = false;
-static bool  g_justReturnedToStart = false;
+static bool  emergencyRequested = false;
+static bool  justReturnedToStart = false;
 
 static const float EMERGENCY_DECEL = 0.1f;  // koliko brzo koci kad se nekom slosi
 static const float RETURN_SPEED = 0.02f;  // mala konst. brzina nazad
 static const float EMERGENCY_STOP_DURATION = 1.0f;  // 10 sekundi pauze
 
-static double g_stopTimer = 0.0;
+static double stopTimer = 0.0;
 
 // brzina ubrzavanja i maksimalna brzina voznje
 static const float RIDE_ACCEL = 0.02f;
@@ -34,26 +34,26 @@ static const float RIDE_MAX_SLOPE_SPEED = 1.60f; // apsolutni max, i nizbrdo
 
 // ------------------ GLOBALNO STANJE MODULA ------------------
 // opseg pruge po x-osi (NDC)
-static float g_trackXMin = -0.9f;
-static float g_trackXMax = 0.9f;
+static float trackXMin = -0.9f;
+static float trackXMax = 0.9f;
 
 // niz verteksa za prugu (x,y) -> 2 float-a po tacki
-static float g_trackVertices[TRACK_POINT_COUNT * 2];
-static float g_trackArcLengths[TRACK_POINT_COUNT];
-static float g_totalTrackLength = 0.0f;
+static float trackVertices[TRACK_POINT_COUNT * 2];
+static float trackArcLengths[TRACK_POINT_COUNT];
+static float totalTrackLength = 0.0f;
 
 // trenutno stanje voznje po parametru (0-1)
-static float g_trackParam = 0.0f;
-static float g_rideSpeed = 0.0f;
-static float g_cartAngle = 0.0f;
-static bool  g_isRideRunning = false;
+static float trackParam = 0.0f;
+static float rideSpeed = 0.0f;
+static float cartAngle = 0.0f;
+static bool  isRideOngoing = false;
 
-static int   g_seatCount = 0;
-static float g_seatStepNDC = 0.0f;  // razmak sjedista u NDC (po X)
-static float g_seatStepLen = 0.0f;  // realna duzina izmedju sjedista po stazi
-static float g_trainLen = 0.0f;  // realna duzina cijele kompozicije
-static float g_trackParamStart = 0.0f;
-static float g_trackParamEnd = 1.0f;
+static int   seatCount = 0;
+static float seatStepNDC = 0.0f;  // razmak sjedista u NDC (po X)
+static float seatStepLen = 0.0f;  // realna duzina izmedju sjedista po stazi
+static float trainLen = 0.0f;  // realna duzina cijele kompozicije
+static float trackParamStart = 0.0f;
+static float trackParamEnd = 1.0f;
 
 // ------------------ POMOCNE FUNKCIJE ---------------------------
 
@@ -64,102 +64,10 @@ static float bezierY(float t, float p0, float p1, float p2, float p3)
     return u * u * u * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t * p3;
 }
 
-// uzorkovanje pruge prema parametru (0-1)
-// vraca interpolisani (x,y) i ugao tangente (nagib pruge)
-// ugao se ogranicava zbog stabilnosti
-static void sampleTrack(float param, float& outX, float& outY, float& outAngle)
+// generisanje pruge i akumulisane duzine duz pruge
+static void buildTrackCurve()
 {
-    // clamp parametra
-    if (param < 0.0f) param = 0.0f;
-    if (param > 1.0f) param = 1.0f;
-
-    float fIndex = param * (TRACK_POINT_COUNT - 1);
-    int i0 = (int)std::floor(fIndex);
-    int i1 = i0 + 1;
-    if (i1 >= TRACK_POINT_COUNT) i1 = TRACK_POINT_COUNT - 1;
-
-    float localT = fIndex - (float)i0;
-
-    // uzimamo dvije susjedne tacke za linearnu interpolaciju
-    float x0 = g_trackVertices[i0 * 2 + 0];
-    float y0 = g_trackVertices[i0 * 2 + 1];
-    float x1 = g_trackVertices[i1 * 2 + 0];
-    float y1 = g_trackVertices[i1 * 2 + 1];
-
-    float dx = x1 - x0;
-    float dy = y1 - y0;
-
-    // ugao tangente pruge
-    float angle = std::atan2(dy, dx);
-
-    // ogranicenje maksimalnog nagiba da se kompozicija ne "prevrce"
-    const float maxAngleDeg = 10.0f;
-    const float maxAngleRad = maxAngleDeg * (float)M_PI / 180.0f;
-    if (angle > maxAngleRad) angle = maxAngleRad;
-    if (angle < -maxAngleRad) angle = -maxAngleRad;
-
-    // ublazavanje efekta da ne bude previse agresivan vizuelno
-    angle *= 0.5f;
-
-    // interpolirano X/Y na segmentu
-    float x = (1.0f - localT) * x0 + localT * x1;
-    float y = (1.0f - localT) * y0 + localT * y1;
-
-    outX = x;
-    outY = y;
-    outAngle = angle;
-}
-
-// nalazi parametar za datu DUZINU od pocetka staze (0 je pocetak)
-static float getParamAtArcLengthFromStart(float targetLen)
-{
-    if (targetLen <= 0.0f)            return 0.0f;
-    if (targetLen >= g_totalTrackLength) return 1.0f;
-
-    int i = 1;
-    while (i < TRACK_POINT_COUNT && g_trackArcLengths[i] < targetLen)
-        ++i;
-
-    int i0 = i - 1;
-    int i1 = i;
-    if (i1 >= TRACK_POINT_COUNT) i1 = TRACK_POINT_COUNT - 1;
-
-    float l0 = g_trackArcLengths[i0];
-    float l1 = g_trackArcLengths[i1];
-    float t = (l1 > l0) ? (targetLen - l0) / (l1 - l0) : 0.0f;
-
-    return (i0 + t) / (float)(TRACK_POINT_COUNT - 1);
-}
-
-// vraca parametar koji je "backDistance" unazad od currentParam po REALNOJ duzini
-static float getParamAtArcLengthBackwards(float currentParam, float backDistance)
-{
-    // trenutna duzina od pocetka
-    float currentIndexF = currentParam * (TRACK_POINT_COUNT - 1);
-    int   currentIndex = (int)std::floor(currentIndexF);
-    if (currentIndex < 0) currentIndex = 0;
-    if (currentIndex >= TRACK_POINT_COUNT) currentIndex = TRACK_POINT_COUNT - 1;
-
-    float currentLength = g_trackArcLengths[currentIndex];
-    float targetLen = currentLength - backDistance;
-    if (targetLen < 0.0f) targetLen = 0.0f;
-
-    return getParamAtArcLengthFromStart(targetLen);
-}
-
-// ------------------------ API ---------------------------------
-
-void initRideMotion(float trackXMin,
-    float trackXMax,
-    float seatStep,
-    int   seatCount)
-{
-    g_trackXMin = trackXMin;
-    g_trackXMax = trackXMax;
-    g_seatCount = seatCount;
-    g_seatStepNDC = seatStep;
-
-    // --------- generisanje pruge i akumulisane duzine ---------
+    // visine bitnih tacaka po y-osi
     float y_start = -0.3f;
     float y_mid_valley1 = -0.3f;
     float y_peak1 = 0.2f;
@@ -187,12 +95,12 @@ void initRideMotion(float trackXMin,
     float current_P3;
 
     float prevX = 0.0f, prevY = 0.0f;
-    g_totalTrackLength = 0.0f;
+    totalTrackLength = 0.0f;
 
     for (int i = 0; i <= TRACK_SEGMENTS; ++i)
     {
         float t = i / (float)TRACK_SEGMENTS;
-        float x = g_trackXMin + (g_trackXMax - g_trackXMin) * t;
+        float x = trackXMin + (trackXMax - trackXMin) * t;
         float y;
 
         // segment 0 -> peak1
@@ -251,11 +159,11 @@ void initRideMotion(float trackXMin,
         }
 
         // upisujemo tacku u globalni niz verteksa
-        g_trackVertices[i * 2 + 0] = x;
-        g_trackVertices[i * 2 + 1] = y;
+        trackVertices[i * 2 + 0] = x;
+        trackVertices[i * 2 + 1] = y;
 
         if (i == 0) {
-            g_trackArcLengths[i] = 0.0f;
+            trackArcLengths[i] = 0.0f;
             prevX = x;
             prevY = y;
         }
@@ -263,39 +171,138 @@ void initRideMotion(float trackXMin,
             float dx = x - prevX;
             float dy = y - prevY;
             float segLen = std::sqrt(dx * dx + dy * dy);
-            g_totalTrackLength += segLen;
-            g_trackArcLengths[i] = g_totalTrackLength;
+            totalTrackLength += segLen;
+            trackArcLengths[i] = totalTrackLength;
             prevX = x;
             prevY = y;
         }
     }
+}
+
+// uzorkovanje pruge prema parametru (0-1)
+// vraca interpolisani (x,y) i ugao tangente (nagib pruge)
+// ugao se ogranicava zbog stabilnosti
+static void sampleTrack(float param, float& outX, float& outY, float& outAngle)
+{
+    // ogranicavanje parametra
+    if (param < 0.0f) param = 0.0f;
+    if (param > 1.0f) param = 1.0f;
+
+    float fIndex = param * (TRACK_POINT_COUNT - 1);
+    int i0 = (int)std::floor(fIndex);
+    int i1 = i0 + 1;
+    if (i1 >= TRACK_POINT_COUNT) i1 = TRACK_POINT_COUNT - 1;
+
+    float localT = fIndex - (float)i0;
+
+    // uzimamo dvije susjedne tacke za linearnu interpolaciju
+    float x0 = trackVertices[i0 * 2 + 0];
+    float y0 = trackVertices[i0 * 2 + 1];
+    float x1 = trackVertices[i1 * 2 + 0];
+    float y1 = trackVertices[i1 * 2 + 1];
+
+    float dx = x1 - x0;
+    float dy = y1 - y0;
+
+    // ugao tangente pruge
+    float angle = std::atan2(dy, dx);
+
+    // ogranicenje maksimalnog nagiba da se kompozicija ne "prevrce"
+    const float maxAngleDeg = 10.0f;
+    const float maxAngleRad = maxAngleDeg * (float)M_PI / 180.0f;
+    if (angle > maxAngleRad) angle = maxAngleRad;
+    if (angle < -maxAngleRad) angle = -maxAngleRad;
+
+    // ublazavanje efekta da ne bude previse agresivan vizuelno
+    angle *= 0.5f;
+
+    // interpolirano X/Y na segmentu
+    float x = (1.0f - localT) * x0 + localT * x1;
+    float y = (1.0f - localT) * y0 + localT * y1;
+
+    outX = x;
+    outY = y;
+    outAngle = angle;
+}
+
+// nalazi parametar za datu DUZINU od pocetka staze (0 je pocetak)
+static float getParamAtArcLengthFromStart(float targetLen)
+{
+    if (targetLen <= 0.0f)            return 0.0f;
+    if (targetLen >= totalTrackLength) return 1.0f;
+
+    int i = 1;
+    while (i < TRACK_POINT_COUNT && trackArcLengths[i] < targetLen)
+        ++i;
+
+    int i0 = i - 1;
+    int i1 = i;
+    if (i1 >= TRACK_POINT_COUNT) i1 = TRACK_POINT_COUNT - 1;
+
+    float l0 = trackArcLengths[i0];
+    float l1 = trackArcLengths[i1];
+    float t = (l1 > l0) ? (targetLen - l0) / (l1 - l0) : 0.0f;
+
+    return (i0 + t) / (float)(TRACK_POINT_COUNT - 1);
+}
+
+// vraca parametar koji je "backDistance" unazad od currentParam po REALNOJ duzini
+static float getParamAtArcLengthBackwards(float currentParam, float backDistance)
+{
+    // trenutna duzina od pocetka
+    float currentIndexF = currentParam * (TRACK_POINT_COUNT - 1);
+    int   currentIndex = (int)std::floor(currentIndexF);
+    if (currentIndex < 0) currentIndex = 0;
+    if (currentIndex >= TRACK_POINT_COUNT) currentIndex = TRACK_POINT_COUNT - 1;
+
+    float currentLength = trackArcLengths[currentIndex];
+    float targetLen = currentLength - backDistance;
+    if (targetLen < 0.0f) targetLen = 0.0f;
+
+    return getParamAtArcLengthFromStart(targetLen);
+}
+
+// ------------------------ API ---------------------------------
+
+void initRideMotion(float inTrackXMin,
+    float inTrackXMax,
+    float seatStep,
+    int   inSeatCount)
+{
+    trackXMin = inTrackXMin;
+    trackXMax = inTrackXMax;
+    seatCount = inSeatCount;
+    seatStepNDC = seatStep;
+
+    // generisemo geometriju pruge i arc-length tabelu
+    buildTrackCurve();
 
     // --------- razmak sjedista po realnoj duzini ----------
-    float ndcTrackWidth = g_trackXMax - g_trackXMin;
-    float seatStepNorm = g_seatStepNDC / ndcTrackWidth;      // u odnosu na sirinu po X
-    g_seatStepLen = seatStepNorm * g_totalTrackLength;  // projekcija na realnu stazu
-    g_trainLen = g_seatStepLen * (g_seatCount - 1);  // ukupna duzina kompozicije
+    float ndcTrackWidth = trackXMax - trackXMin;
+    float seatStepNorm = seatStepNDC / ndcTrackWidth;      // u odnosu na sirinu po X
+    seatStepLen = seatStepNorm * totalTrackLength;  // projekcija na realnu stazu
+    trainLen = seatStepLen * (seatCount - 1);  // ukupna duzina kompozicije
 
     // zadnji vagon (seatIndex 0) -> pocetak pruge (duzina = 0)
-    // prvi vagon (seatIndex 7)   -> na duzini g_trainLen od pocetka
-    float frontLen = g_trainLen;
-    g_trackParamStart = getParamAtArcLengthFromStart(frontLen);
-    g_trackParamEnd = 1.0f;
-    g_trackParam = g_trackParamStart;
+    // prvi vagon (seatIndex 7)   -> na duzini trainLen od pocetka
+    float frontLen = trainLen;
+    trackParamStart = getParamAtArcLengthFromStart(frontLen);
+    trackParamEnd = 1.0f;
+    trackParam = trackParamStart;
 
-    g_rideSpeed = 0.0f;
-    g_isRideRunning = false;
-    g_cartAngle = 0.0f;
-    g_state = RideState::AtStartIdle;
-    g_emergencyRequested = false;
-    g_justReturnedToStart = false;
-    g_stopTimer = 0.0;
+    rideSpeed = 0.0f;
+    isRideOngoing = false;
+    cartAngle = 0.0f;
+    state = RideState::AtStartIdle;
+    emergencyRequested = false;
+    justReturnedToStart = false;
+    stopTimer = 0.0;
 }
 
 // stanje
 bool isRideRunning()
 {
-    return g_isRideRunning;
+    return isRideOngoing;
 }
 
 // pokusavamo pokrenuti voznju samo ako:
@@ -306,18 +313,18 @@ void tryStartRide(bool canStart)
     if (!canStart)
         return;
 
-    if (g_isRideRunning)
+    if (isRideOngoing)
         return;
 
-    if (g_state != RideState::AtStartIdle)
+    if (state != RideState::AtStartIdle)
         return;
 
-    g_trackParam = g_trackParamStart;
-    g_rideSpeed = 0.0f;
-    g_isRideRunning = true;
-    g_state = RideState::RunningForward;
-    g_emergencyRequested = false;
-    g_stopTimer = 0.0;
+    trackParam = trackParamStart;
+    rideSpeed = 0.0f;
+    isRideOngoing = true;
+    state = RideState::RunningForward;
+    emergencyRequested = false;
+    stopTimer = 0.0;
 }
 
 // glavni update
@@ -325,102 +332,102 @@ void updateRide(double deltaTime)
 {
     float dt = (float)deltaTime;
 
-    switch (g_state)
+    switch (state)
     {
     case RideState::AtStartIdle:
         // stoji na pocetku, nista se ne desava
-        g_isRideRunning = false;
+        isRideOngoing = false;
         break;
 
     case RideState::RunningForward:
     {
-        g_isRideRunning = true;
+        isRideOngoing = true;
 
         // osnovno ubrzavanje do krstarece brzine
-        g_rideSpeed += RIDE_ACCEL * dt;
-        if (g_rideSpeed > RIDE_MAX_SPEED)
-            g_rideSpeed = RIDE_MAX_SPEED;
+        rideSpeed += RIDE_ACCEL * dt;
+        if (rideSpeed > RIDE_MAX_SPEED)
+            rideSpeed = RIDE_MAX_SPEED;
 
         // ako je neko trazio emergency -> odmah prelazimo u mod kocenja
-        if (g_emergencyRequested) {
-            g_state = RideState::EmergencyStopping;
+        if (emergencyRequested) {
+            state = RideState::EmergencyStopping;
             break;
         }
 
         // normalna “gravitaciona” fizika
         float xCurr, yCurr, angleCurr;
-        sampleTrack(g_trackParam, xCurr, yCurr, angleCurr);
+        sampleTrack(trackParam, xCurr, yCurr, angleCurr);
 
         float slopeFactor = std::sin(angleCurr);
-        g_rideSpeed += RIDE_SLOPE_ACCEL * (-slopeFactor) * dt;
+        rideSpeed += RIDE_SLOPE_ACCEL * (-slopeFactor) * dt;
 
-        if (g_rideSpeed < RIDE_MIN_SPEED)
-            g_rideSpeed = RIDE_MIN_SPEED;
-        if (g_rideSpeed > RIDE_MAX_SLOPE_SPEED)
-            g_rideSpeed = RIDE_MAX_SLOPE_SPEED;
+        if (rideSpeed < RIDE_MIN_SPEED)
+            rideSpeed = RIDE_MIN_SPEED;
+        if (rideSpeed > RIDE_MAX_SLOPE_SPEED)
+            rideSpeed = RIDE_MAX_SLOPE_SPEED;
 
-        g_trackParam += g_rideSpeed * dt;
+        trackParam += rideSpeed * dt;
 
         // stigli do kraja -> automatski prelazimo u povratak na pocetak
-        /*if (g_trackParam >= g_trackParamEnd) {
-            g_trackParam = g_trackParamEnd;
-            g_state = RideState::ReturningToStart;
-            g_rideSpeed = -RETURN_SPEED;
-            g_isRideRunning = true;
+        /*if (trackParam >= trackParamEnd) {
+            trackParam = trackParamEnd;
+            state = RideState::ReturningToStart;
+            rideSpeed = -RETURN_SPEED;
+            isRideOngoing = true;
         }*/
         break;
     }
 
     case RideState::EmergencyStopping:
     {
-        g_isRideRunning = true;
+        isRideOngoing = true;
 
         // lagano kocenje, nezavisno od nagiba
-        g_rideSpeed -= EMERGENCY_DECEL * dt;
-        if (g_rideSpeed < 0.0f)
-            g_rideSpeed = 0.0f;
+        rideSpeed -= EMERGENCY_DECEL * dt;
+        if (rideSpeed < 0.0f)
+            rideSpeed = 0.0f;
 
-        g_trackParam += g_rideSpeed * dt;
+        trackParam += rideSpeed * dt;
 
-        if (g_rideSpeed <= 0.0f) {
-            g_state = RideState::StoppedForSick;
-            g_isRideRunning = false;
-            g_emergencyRequested = false;
-            g_stopTimer = 0.0;
+        if (rideSpeed <= 0.0f) {
+            state = RideState::StoppedForSick;
+            isRideOngoing = false;
+            emergencyRequested = false;
+            stopTimer = 0.0;
         }
         break;
     }
 
     case RideState::StoppedForSick:
-        g_isRideRunning = false;
-        g_stopTimer += deltaTime;
-        if (g_stopTimer >= EMERGENCY_STOP_DURATION) {
-            g_state = RideState::ReturningToStart;
-            g_isRideRunning = true;
-            g_rideSpeed = -RETURN_SPEED;
+        isRideOngoing = false;
+        stopTimer += deltaTime;
+        if (stopTimer >= EMERGENCY_STOP_DURATION) {
+            state = RideState::ReturningToStart;
+            isRideOngoing = true;
+            rideSpeed = -RETURN_SPEED;
         }
         break;
 
     case RideState::ReturningToStart:
-        g_isRideRunning = true;
+        isRideOngoing = true;
 
         // idemo KONSTANTNOM brzinom nazad (bez gravitacije)
-        g_trackParam += g_rideSpeed * dt;  // g_rideSpeed < 0
+        trackParam += rideSpeed * dt;  // rideSpeed < 0
 
-        if (g_trackParam <= g_trackParamStart) {
-            g_trackParam = g_trackParamStart;
-            g_rideSpeed = 0.0f;
-            g_isRideRunning = false;
-            g_state = RideState::AtStartIdle;
-            g_justReturnedToStart = true;   // javi sceni da smo stigli
+        if (trackParam <= trackParamStart) {
+            trackParam = trackParamStart;
+            rideSpeed = 0.0f;
+            isRideOngoing = false;
+            state = RideState::AtStartIdle;
+            justReturnedToStart = true;   // javi sceni da smo stigli
         }
         break;
     }
 
     // ugao za crtanje vagona (zavisno od trenutnog parametra)
     float x, y, angle;
-    sampleTrack(g_trackParam, x, y, angle);
-    g_cartAngle = angle;
+    sampleTrack(trackParam, x, y, angle);
+    cartAngle = angle;
 }
 
 // bazna pozicija sjedista N, ukljucujuci ugao pruge u toj tacki
@@ -431,10 +438,10 @@ void getSeatBasePositionAndAngle(int seatIndex,
 {
     // seatIndex 0  -> zadnji vagon (najblize pocetku)
     // seatIndex 7  -> prvi vagon (naprijed)
-    int seatOrderIndex = g_seatCount - 1 - seatIndex;
+    int seatOrderIndex = seatCount - 1 - seatIndex;
     // sjediste je pomjereno unazad po parametru
-    float backDist = seatOrderIndex * g_seatStepLen;
-    float seatParam = getParamAtArcLengthBackwards(g_trackParam, backDist);
+    float backDist = seatOrderIndex * seatStepLen;
+    float seatParam = getParamAtArcLengthBackwards(trackParam, backDist);
 
     // uzorkujemo tacku na pruzi
     sampleTrack(seatParam, sx, sy, angle);
@@ -443,24 +450,24 @@ void getSeatBasePositionAndAngle(int seatIndex,
 // vracamo pointer na sve tacke pruge (za OpenGL VBO/VAO)
 const float* getTrackVertices()
 {
-    return g_trackVertices;
+    return trackVertices;
 }
 
 void requestEmergencyStop()
 {
     // emergency smije samo dok normalno vozimo naprijed
-    if (!g_isRideRunning)
+    if (!isRideOngoing)
         return;
-    if (g_state != RideState::RunningForward)
+    if (state != RideState::RunningForward)
         return;
 
-    g_emergencyRequested = true;
+    emergencyRequested = true;
 }
 
 bool didJustReturnToStart()
 {
-    if (!g_justReturnedToStart)
+    if (!justReturnedToStart)
         return false;
-    g_justReturnedToStart = false;  // konzumiraj flag
+    justReturnedToStart = false;  // konzumiraj flag
     return true;
 }

@@ -5,76 +5,77 @@
 
 #include <cmath>
 
-// VAO/VBO za vagon i nameplate
-static GLuint g_vaoCart = 0;
-static GLuint g_vboCart = 0;
+// VAO/VBO za cart i nameplate
+static GLuint vaoCart = 0;
+static GLuint vboCart = 0;
 
-static GLuint g_vaoNameplate = 0;
-static GLuint g_vboNameplate = 0;
+static GLuint vaoNameplate = 0;
+static GLuint vboNameplate = 0;
 
 // teksture
-static GLuint g_wagonTexture = 0;
-static GLuint g_nameplateTexture = 0;
+static GLuint cartTexture = 0;
+static GLuint nameplateTexture = 0;
 
 // shader i uniforme (teksturisani alpha shader)
-static GLuint g_texturedAlphaShader = 0;
-static int g_uOffsetLocation = -1;
-static int g_uAngleLocation = -1;
-static int g_uAlphaLocation = -1;
+static GLuint texturedAlphaShader = 0;
+static int uOffsetLocation = -1;
+static int uAngleLocation = -1;
+static int uAlphaLocation = -1;
 
-// geometrija vagona
-static float g_cartHeight = 0.0f;
-static float g_cartShapeRatio = 0.0f;
-static float g_cartWidth = 0.0f;
+// geometrija cart-a
+static float cartHeight = 0.0f;
+static float cartShapeRatio = 0.0f;
+static float cartWidth = 0.0f;
 
-static float g_wagonSegmentWidth = 0.0f;
-static float g_wagonSegmentHeight = 0.0f;
+static float cartSegmentWidth = 0.0f;
+static float cartSegmentHeight = 0.0f;
 
-void initCartRenderer(float cartHeight,
-    float cartShapeRatio,
+void initCartRenderer(float inCartHeight,
+    float inCartShapeRatio,
     float aspect,
     float seatStep,
-    GLuint wagonTexture,
-    GLuint nameplateTexture,
-    GLuint texturedAlphaShader,
-    int uOffsetLocation,
-    int uAngleLocation,
-    int uAlphaLocation)
+    GLuint inCartTexture,
+    GLuint inNameplateTexture,
+    GLuint inTexturedAlphaShader,
+    int inUOffsetLocation,
+    int inUAngleLocation,
+    int inUAlphaLocation)
 {
-    g_cartHeight = cartHeight;
-    g_cartShapeRatio = cartShapeRatio;
-    g_cartWidth = g_cartHeight * g_cartShapeRatio * aspect;
+    // sacuvaj parametre u staticke promenljive
+    cartHeight = inCartHeight;
+    cartShapeRatio = inCartShapeRatio;
+    cartWidth = cartHeight * cartShapeRatio * aspect;
 
-    g_wagonTexture = wagonTexture;
-    g_nameplateTexture = nameplateTexture;
+    cartTexture = inCartTexture;
+    nameplateTexture = inNameplateTexture;
 
-    g_texturedAlphaShader = texturedAlphaShader;
-    g_uOffsetLocation = uOffsetLocation;
-    g_uAngleLocation = uAngleLocation;
-    g_uAlphaLocation = uAlphaLocation;
+    texturedAlphaShader = inTexturedAlphaShader;
+    uOffsetLocation = inUOffsetLocation;
+    uAngleLocation = inUAngleLocation;
+    uAlphaLocation = inUAlphaLocation;
 
     // geometrija 8 malih kvadrata vozila (segment ispod jednog sjedista)
 
     // visina kvadrata (po y), u NDC
-    g_wagonSegmentHeight = g_cartHeight * 0.25f;
+    cartSegmentHeight = cartHeight * 0.25f;
 
     // sirina vezana za razmak izmedju sjedista
-    g_wagonSegmentWidth = seatStep * 0.65f;
+    cartSegmentWidth = seatStep * 0.65f;
 
     // x, y, u, v  
-    float wagonVertices[] = {
-        -g_wagonSegmentWidth,  2.0f * g_wagonSegmentHeight, 0.0f, 1.0f, // gornje lijevo
-        -g_wagonSegmentWidth,  0.0f,                        0.0f, 0.0f, // donje lijevo
-         g_wagonSegmentWidth,  0.0f,                        1.0f, 0.0f, // donje desno
-         g_wagonSegmentWidth,  2.0f * g_wagonSegmentHeight, 1.0f, 1.0f  // gornje desno
+    float cartVertices[] = {
+        -cartSegmentWidth,  2.0f * cartSegmentHeight, 0.0f, 1.0f, // gornje lijevo
+        -cartSegmentWidth,  0.0f,                      0.0f, 0.0f, // donje lijevo
+         cartSegmentWidth,  0.0f,                      1.0f, 0.0f, // donje desno
+         cartSegmentWidth,  2.0f * cartSegmentHeight, 1.0f, 1.0f  // gornje desno
     };
 
-    glGenVertexArrays(1, &g_vaoCart);
-    glGenBuffers(1, &g_vboCart);
+    glGenVertexArrays(1, &vaoCart);
+    glGenBuffers(1, &vboCart);
 
-    glBindVertexArray(g_vaoCart);
-    glBindBuffer(GL_ARRAY_BUFFER, g_vboCart);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(wagonVertices), wagonVertices, GL_STATIC_DRAW);
+    glBindVertexArray(vaoCart);
+    glBindBuffer(GL_ARRAY_BUFFER, vboCart);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(cartVertices), cartVertices, GL_STATIC_DRAW);
 
     // pozicija (x, y)
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
@@ -87,17 +88,17 @@ void initCartRenderer(float cartHeight,
     // ------------------ VAO/VBO za nameplate (ime u gornjem lijevom uglu) ------------------
 
     float nameplateVertices[] = {
-        -1.0f,  1.0f,    0.0f, 1.0f, // gornje lijevo
-        -1.0f,  0.65f,   0.0f, 0.0f, // donje lijevo
-        -0.625f,0.65f,   1.0f, 0.0f, // donje desno
-        -0.625f,1.0f,    1.0f, 1.0f  // gornje desno
+        -1.0f,   1.0f,   0.0f, 1.0f, // gornje lijevo
+        -1.0f,   0.65f,  0.0f, 0.0f, // donje lijevo
+        -0.625f, 0.65f,  1.0f, 0.0f, // donje desno
+        -0.625f, 1.0f,   1.0f, 1.0f  // gornje desno
     };
 
-    glGenVertexArrays(1, &g_vaoNameplate);
-    glGenBuffers(1, &g_vboNameplate);
+    glGenVertexArrays(1, &vaoNameplate);
+    glGenBuffers(1, &vboNameplate);
 
-    glBindVertexArray(g_vaoNameplate);
-    glBindBuffer(GL_ARRAY_BUFFER, g_vboNameplate);
+    glBindVertexArray(vaoNameplate);
+    glBindBuffer(GL_ARRAY_BUFFER, vboNameplate);
     glBufferData(GL_ARRAY_BUFFER, sizeof(nameplateVertices), nameplateVertices, GL_STATIC_DRAW);
 
     // pozicija (x, y)
@@ -114,19 +115,19 @@ void initCartRenderer(float cartHeight,
 void renderCart()
 {
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, g_wagonTexture);
+    glBindTexture(GL_TEXTURE_2D, cartTexture);
 
-    glUseProgram(g_texturedAlphaShader);
-    glUniform1f(g_uAlphaLocation, 1.0f);
+    glUseProgram(texturedAlphaShader);
+    glUniform1f(uAlphaLocation, 1.0f);
 
-    glBindVertexArray(g_vaoCart);
+    glBindVertexArray(vaoCart);
 
     for (int i = 0; i < SEAT_COUNT; ++i) {
         float sx, sy, angle;
         getSeatBasePositionAndAngle(i, sx, sy, angle);
 
-        glUniform1f(g_uAngleLocation, angle);
-        glUniform2f(g_uOffsetLocation, sx, sy);  // pivot na pruzi, dno vagona
+        glUniform1f(uAngleLocation, angle);
+        glUniform2f(uOffsetLocation, sx, sy);  // pivot na pruzi, dno cart-a
         glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
     }
 
@@ -136,17 +137,17 @@ void renderCart()
 void renderNameplate()
 {
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, g_nameplateTexture);
+    glBindTexture(GL_TEXTURE_2D, nameplateTexture);
 
-    glUseProgram(g_texturedAlphaShader);
+    glUseProgram(texturedAlphaShader);
 
     // nameplate poluprovidan
-    glUniform1f(g_uAlphaLocation, 0.5f);
+    glUniform1f(uAlphaLocation, 0.5f);
     // nameplate statican u uglu, bez pomjeranja
-    glUniform2f(g_uOffsetLocation, 0.0f, 0.0f);
-    glUniform1f(g_uAngleLocation, 0.0f);
+    glUniform2f(uOffsetLocation, 0.0f, 0.0f);
+    glUniform1f(uAngleLocation, 0.0f);
 
-    glBindVertexArray(g_vaoNameplate);
+    glBindVertexArray(vaoNameplate);
     glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 
     glBindVertexArray(0);
@@ -154,31 +155,31 @@ void renderNameplate()
 
 void cleanupCartRenderer()
 {
-    if (g_vboCart) {
-        glDeleteBuffers(1, &g_vboCart);
-        g_vboCart = 0;
+    if (vboCart) {
+        glDeleteBuffers(1, &vboCart);
+        vboCart = 0;
     }
-    if (g_vaoCart) {
-        glDeleteVertexArrays(1, &g_vaoCart);
-        g_vaoCart = 0;
+    if (vaoCart) {
+        glDeleteVertexArrays(1, &vaoCart);
+        vaoCart = 0;
     }
 
-    if (g_vboNameplate) {
-        glDeleteBuffers(1, &g_vboNameplate);
-        g_vboNameplate = 0;
+    if (vboNameplate) {
+        glDeleteBuffers(1, &vboNameplate);
+        vboNameplate = 0;
     }
-    if (g_vaoNameplate) {
-        glDeleteVertexArrays(1, &g_vaoNameplate);
-        g_vaoNameplate = 0;
+    if (vaoNameplate) {
+        glDeleteVertexArrays(1, &vaoNameplate);
+        vaoNameplate = 0;
     }
 }
 
-float getWagonSegmentHeight()
+float getCartSegmentHeight()
 {
-    return g_wagonSegmentHeight;
+    return cartSegmentHeight;
 }
 
-float getWagonSegmentWidth()
+float getCartSegmentWidth()
 {
-    return g_wagonSegmentWidth;
+    return cartSegmentWidth;
 }

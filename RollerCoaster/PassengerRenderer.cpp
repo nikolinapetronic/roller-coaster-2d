@@ -7,30 +7,30 @@
 #include <cmath>
 
 // VAO/VBO za putnika/pojas
-static GLuint g_vaoPassenger = 0;
-static GLuint g_vboPassenger = 0;
+static GLuint vaoPassenger = 0;
+static GLuint vboPassenger = 0;
 
 // teksture
-static GLuint g_passengerTexture = 0;
-static GLuint g_passengerSickTexture = 0;
-static GLuint g_beltTexture = 0;
+static GLuint passengerTexture = 0;
+static GLuint passengerSickTexture = 0;
+static GLuint beltTexture = 0;
 
 // shader i uniforme
-static GLuint g_texturedAlphaShader = 0;
-static int g_uOffsetLocation = -1;
-static int g_uAngleLocation = -1;
-static int g_uAlphaLocation = -1;
+static GLuint texturedAlphaShader = 0;
+static int uOffsetLocation = -1;
+static int uAngleLocation = -1;
+static int uAlphaLocation = -1;
 
 // geometrija putnika
 // putnik malo uzi od vagona
-static float g_passengerHalfWidth = 0.0f;
-static float g_passengerHalfHeight = 0.0f;
+static float passengerHalfWidth = 0.0f;
+static float passengerHalfHeight = 0.0f;
 
 // koliko iznad dna vagona je centar putnika 
-static float g_passengerHeightFromBase = 0.0f;
+static float passengerHeightFromBase = 0.0f;
 
 // lokalno pomjeranje putnika u odnosu na centar sjedista (NDC)
-static const float g_passengerOffsetX = -0.01f;   // malo ulijevo
+static const float passengerOffsetX = -0.01f;   // malo ulijevo
 
 // pomocna funkcija: racuna centar putnika i ugao za zadato sjediste
 static void getPassengerCenterForSeat(int seatIndex,
@@ -42,8 +42,8 @@ static void getPassengerCenterForSeat(int seatIndex,
     getSeatBasePositionAndAngle(seatIndex, sx, sy, angle);
 
     // lokalni pomjeraj putnika (blago ulijevo u odnosu na sjediste)
-    float localX = g_passengerOffsetX;          // malo ulijevo
-    float localY = g_passengerHeightFromBase;   // iznad dna vagona
+    float localX = passengerOffsetX;          // malo ulijevo
+    float localY = passengerHeightFromBase;   // iznad dna vagona
 
     float c = std::cos(angle);
     float s = std::sin(angle);
@@ -53,43 +53,43 @@ static void getPassengerCenterForSeat(int seatIndex,
     angleOut = angle;
 }
 
-void initPassengerRenderer(GLuint passengerTexture,
-    GLuint passengerSickTexture,
-    GLuint beltTexture,
-    GLuint texturedAlphaShader,
-    int uOffsetLocation,
-    int uAngleLocation,
-    int uAlphaLocation)
+void initPassengerRenderer(GLuint inPassengerTexture,
+    GLuint inPassengerSickTexture,
+    GLuint inBeltTexture,
+    GLuint inTexturedAlphaShader,
+    int inUOffsetLocation,
+    int inUAngleLocation,
+    int inUAlphaLocation)
 {
-    g_passengerTexture = passengerTexture;
-    g_passengerSickTexture = passengerSickTexture;
-    g_beltTexture = beltTexture;
+    passengerTexture = inPassengerTexture;
+    passengerSickTexture = inPassengerSickTexture;
+    beltTexture = inBeltTexture;
 
-    g_texturedAlphaShader = texturedAlphaShader;
-    g_uOffsetLocation = uOffsetLocation;
-    g_uAngleLocation = uAngleLocation;
-    g_uAlphaLocation = uAlphaLocation;
+    texturedAlphaShader = inTexturedAlphaShader;
+    uOffsetLocation = inUOffsetLocation;
+    uAngleLocation = inUAngleLocation;
+    uAlphaLocation = inUAlphaLocation;
 
-    // geometrija putnika zasnovana na segmentu vagona
-    float wagonSegmentHeight = getWagonSegmentHeight();
-    float wagonSegmentWidth = getWagonSegmentWidth();
+    // geometrija putnika zasnovana na segmentu cart-a
+    float cartSegmentHeight = getCartSegmentHeight();
+    float cartSegmentWidth = getCartSegmentWidth();
 
-    g_passengerHalfWidth = wagonSegmentWidth * 0.7f;
-    g_passengerHalfHeight = wagonSegmentHeight * 0.6f;
-    g_passengerHeightFromBase = wagonSegmentHeight * 1.2f;
+    passengerHalfWidth = cartSegmentWidth * 0.7f;
+    passengerHalfHeight = cartSegmentHeight * 0.6f;
+    passengerHeightFromBase = cartSegmentHeight * 1.2f;
 
     float passengerVertices[] = {
-        -g_passengerHalfWidth,  g_passengerHalfHeight, 0.0f, 1.0f, // gornje lijevo
-        -g_passengerHalfWidth, -g_passengerHalfHeight, 0.0f, 0.0f, // donje lijevo
-         g_passengerHalfWidth, -g_passengerHalfHeight, 1.0f, 0.0f, // donje desno
-         g_passengerHalfWidth,  g_passengerHalfHeight, 1.0f, 1.0f  // gornje desno
+        -passengerHalfWidth,  passengerHalfHeight, 0.0f, 1.0f, // gornje lijevo
+        -passengerHalfWidth, -passengerHalfHeight, 0.0f, 0.0f, // donje lijevo
+         passengerHalfWidth, -passengerHalfHeight, 1.0f, 0.0f, // donje desno
+         passengerHalfWidth,  passengerHalfHeight, 1.0f, 1.0f  // gornje desno
     };
 
-    glGenVertexArrays(1, &g_vaoPassenger);
-    glGenBuffers(1, &g_vboPassenger);
+    glGenVertexArrays(1, &vaoPassenger);
+    glGenBuffers(1, &vboPassenger);
 
-    glBindVertexArray(g_vaoPassenger);
-    glBindBuffer(GL_ARRAY_BUFFER, g_vboPassenger);
+    glBindVertexArray(vaoPassenger);
+    glBindBuffer(GL_ARRAY_BUFFER, vboPassenger);
     glBufferData(GL_ARRAY_BUFFER, sizeof(passengerVertices), passengerVertices, GL_STATIC_DRAW);
 
     // pozicija
@@ -105,8 +105,8 @@ void initPassengerRenderer(GLuint passengerTexture,
 
 void renderPassengers()
 {
-    glUseProgram(g_texturedAlphaShader);
-    glBindVertexArray(g_vaoPassenger);
+    glUseProgram(texturedAlphaShader);
+    glBindVertexArray(vaoPassenger);
 
     for (int i = 0; i < SEAT_COUNT; ++i) {
         if (!seats[i].occupied) continue;
@@ -117,20 +117,20 @@ void renderPassengers()
 
         // prvo crtamo putnika
         glActiveTexture(GL_TEXTURE0);
-        GLuint tex = seats[i].sick ? g_passengerSickTexture : g_passengerTexture;
+        GLuint tex = seats[i].sick ? passengerSickTexture : passengerTexture;
         glBindTexture(GL_TEXTURE_2D, tex);
 
-        glUniform1f(g_uAlphaLocation, 1.0f);
-        glUniform1f(g_uAngleLocation, angle);
-        glUniform2f(g_uOffsetLocation, px, py);
+        glUniform1f(uAlphaLocation, 1.0f);
+        glUniform1f(uAngleLocation, angle);
+        glUniform2f(uOffsetLocation, px, py);
         glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 
         // ako je pojas zakacen, crtamo pojas preko istog centra
         if (seats[i].beltOn) {
-            glBindTexture(GL_TEXTURE_2D, g_beltTexture);
-            glUniform1f(g_uAlphaLocation, 1.0f);
-            glUniform1f(g_uAngleLocation, angle);
-            glUniform2f(g_uOffsetLocation, px, py);
+            glBindTexture(GL_TEXTURE_2D, beltTexture);
+            glUniform1f(uAlphaLocation, 1.0f);
+            glUniform1f(uAngleLocation, angle);
+            glUniform2f(uOffsetLocation, px, py);
             glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
         }
     }
@@ -151,8 +151,8 @@ void handlePassengerClick(float mouseNdcX, float mouseNdcY)
         float cx, cy, angle;
         getPassengerCenterForSeat(i, cx, cy, angle);
 
-        if (mouseNdcX >= cx - g_passengerHalfWidth && mouseNdcX <= cx + g_passengerHalfWidth &&
-            mouseNdcY >= cy - g_passengerHalfHeight && mouseNdcY <= cy + g_passengerHalfHeight) {
+        if (mouseNdcX >= cx - passengerHalfWidth && mouseNdcX <= cx + passengerHalfWidth &&
+            mouseNdcY >= cy - passengerHalfHeight && mouseNdcY <= cy + passengerHalfHeight) {
 
             if (!unloadingPhase) {
                 // normalni rezim -> vezi / odvezi pojas
@@ -184,12 +184,12 @@ void handlePassengerClick(float mouseNdcX, float mouseNdcY)
 
 void cleanupPassengerRenderer()
 {
-    if (g_vboPassenger) {
-        glDeleteBuffers(1, &g_vboPassenger);
-        g_vboPassenger = 0;
+    if (vboPassenger) {
+        glDeleteBuffers(1, &vboPassenger);
+        vboPassenger = 0;
     }
-    if (g_vaoPassenger) {
-        glDeleteVertexArrays(1, &g_vaoPassenger);
-        g_vaoPassenger = 0;
+    if (vaoPassenger) {
+        glDeleteVertexArrays(1, &vaoPassenger);
+        vaoPassenger = 0;
     }
 }

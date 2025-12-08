@@ -6,7 +6,7 @@ Seat seats[SEAT_COUNT];
 
 // faza iskrcavanja putnika
 bool unloadingPhase = false;
-// da li je u toku emergency scenario (vec prijavljen neki putnik)
+// da li je u toku emergency scenario 
 bool emergencyInProgress = false;
 
 // inicijalizacija sjedista (lokalne pozicije i pocetno stanje)
@@ -27,7 +27,7 @@ void initSeats(float seatsLeftX, float seatsY, float seatStep)
 }
 
 // da li su sva zauzeta sjedista vezana
-bool areAllOccupiedSeatsBelted()
+bool areAllSeatsFastened()
 {
     bool anyOccupied = false;
 
@@ -45,7 +45,7 @@ bool areAllOccupiedSeatsBelted()
 }
 
 // logika koja se izvrsava kad se voz vrati na pocetak
-// (odvezivanje svih zauzetih sjedista + pokretanje unloading faze)
+// odvezivanje svih zauzetih sjedista i pokretanje unloading faze
 void handleRideReturned()
 {
     // svi se automatski odvezu
@@ -57,11 +57,11 @@ void handleRideReturned()
     }
 
     unloadingPhase = true;
-    emergencyInProgress = false;   // odradili ture, spremni za novu
+    emergencyInProgress = false;   // spremni za novu turu
 }
 
 // dodavanje novog putnika sa zadnje strane vagona (taster SPACE)
-void tryAddPassengerFromBack()
+void addPassengers()
 {
     // ne dodaj putnike ako voz vozi ili jos iskrcavamo staru turu
     if (isRideRunning() || unloadingPhase)
@@ -80,9 +80,9 @@ void tryAddPassengerFromBack()
 }
 
 // obrada "slosilo se" signala za putnika na zadatom indeksu od naprijed (tasteri 1-8)
-void handleSickKeyFromFrontIndex(int keyIndex)
+void handleSickKey(int keyIndex)
 {
-    // ako voz ne vozi ili smo vec u emergency scenariju -> ignorisi signal
+    // ako voznja nije u toku ili smo vec u emergency scenariju -> ignorisi signal
     if (!isRideRunning() || emergencyInProgress)
         return;
 

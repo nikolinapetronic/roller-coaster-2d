@@ -6,14 +6,14 @@
 #include <iostream>
 
 // VAO/VBO za prugu i stubove
-static unsigned int g_vaoTrack = 0;
-static unsigned int g_vboTrack = 0;
-static unsigned int g_vaoSupports = 0;
-static unsigned int g_vboSupports = 0;
+static unsigned int vaoTrack = 0;
+static unsigned int vboTrack = 0;
+static unsigned int vaoSupports = 0;
+static unsigned int vboSupports = 0;
 
 // shader za prugu (samo boja)
-static unsigned int g_trackShader = 0;
-static int g_uTrackColorLocation = -1;
+static unsigned int trackShader = 0;
+static int uTrackColorLocation = -1;
 
 // broj stubova
 static const int SUPPORT_COUNT = 35;
@@ -23,9 +23,9 @@ static float supportVertices[SUPPORT_COUNT * 4];
 void initTrackRenderer()
 {
     // kreiranje shadera
-    g_trackShader = createShader("solid_color.vert", "solid_color.frag");
-    g_uTrackColorLocation = glGetUniformLocation(g_trackShader, "uColor");
-    if (g_uTrackColorLocation == -1) {
+    trackShader = createShader("solid_color.vert", "solid_color.frag");
+    uTrackColorLocation = glGetUniformLocation(trackShader, "uColor");
+    if (uTrackColorLocation == -1) {
         std::cout << "uColor (track) nije pronadjen u shaderu!" << std::endl;
     }
 
@@ -33,11 +33,11 @@ void initTrackRenderer()
 
     const float* trackVertices = getTrackVertices();
 
-    glGenVertexArrays(1, &g_vaoTrack);
-    glBindVertexArray(g_vaoTrack);
+    glGenVertexArrays(1, &vaoTrack);
+    glBindVertexArray(vaoTrack);
 
-    glGenBuffers(1, &g_vboTrack);
-    glBindBuffer(GL_ARRAY_BUFFER, g_vboTrack);
+    glGenBuffers(1, &vboTrack);
+    glBindBuffer(GL_ARRAY_BUFFER, vboTrack);
     glBufferData(GL_ARRAY_BUFFER,
         sizeof(float) * TRACK_POINT_COUNT * 2,
         trackVertices,
@@ -70,11 +70,11 @@ void initTrackRenderer()
         supportVertices[i * 4 + 3] = bottomY;
     }
 
-    glGenVertexArrays(1, &g_vaoSupports);
-    glBindVertexArray(g_vaoSupports);
+    glGenVertexArrays(1, &vaoSupports);
+    glBindVertexArray(vaoSupports);
 
-    glGenBuffers(1, &g_vboSupports);
-    glBindBuffer(GL_ARRAY_BUFFER, g_vboSupports);
+    glGenBuffers(1, &vboSupports);
+    glBindBuffer(GL_ARRAY_BUFFER, vboSupports);
     glBufferData(GL_ARRAY_BUFFER, sizeof(supportVertices), supportVertices, GL_STATIC_DRAW);
 
     // pozicija (x, y)
@@ -87,15 +87,15 @@ void initTrackRenderer()
 void renderTrack()
 {
     // crtanje pruge - jedna glatka kriva sa ravnim dijelovima
-    glUseProgram(g_trackShader);
+    glUseProgram(trackShader);
     // skoro bijela
-    glUniform3f(g_uTrackColorLocation, 0.8f, 1.0f, 1.0f);
+    glUniform3f(uTrackColorLocation, 0.8f, 1.0f, 1.0f);
 
-    glBindVertexArray(g_vaoTrack);
+    glBindVertexArray(vaoTrack);
     glDrawArrays(GL_LINE_STRIP, 0, TRACK_POINT_COUNT);
 
     // crtanje stubova ispod pruge (isti shader i boja kao za prugu)
-    glBindVertexArray(g_vaoSupports);
+    glBindVertexArray(vaoSupports);
     glDrawArrays(GL_LINES, 0, SUPPORT_COUNT * 2);
 
     glBindVertexArray(0);
@@ -103,26 +103,26 @@ void renderTrack()
 
 void cleanupTrackRenderer()
 {
-    if (g_vboTrack) {
-        glDeleteBuffers(1, &g_vboTrack);
-        g_vboTrack = 0;
+    if (vboTrack) {
+        glDeleteBuffers(1, &vboTrack);
+        vboTrack = 0;
     }
-    if (g_vaoTrack) {
-        glDeleteVertexArrays(1, &g_vaoTrack);
-        g_vaoTrack = 0;
-    }
-
-    if (g_vboSupports) {
-        glDeleteBuffers(1, &g_vboSupports);
-        g_vboSupports = 0;
-    }
-    if (g_vaoSupports) {
-        glDeleteVertexArrays(1, &g_vaoSupports);
-        g_vaoSupports = 0;
+    if (vaoTrack) {
+        glDeleteVertexArrays(1, &vaoTrack);
+        vaoTrack = 0;
     }
 
-    if (g_trackShader) {
-        glDeleteProgram(g_trackShader);
-        g_trackShader = 0;
+    if (vboSupports) {
+        glDeleteBuffers(1, &vboSupports);
+        vboSupports = 0;
+    }
+    if (vaoSupports) {
+        glDeleteVertexArrays(1, &vaoSupports);
+        vaoSupports = 0;
+    }
+
+    if (trackShader) {
+        glDeleteProgram(trackShader);
+        trackShader = 0;
     }
 }

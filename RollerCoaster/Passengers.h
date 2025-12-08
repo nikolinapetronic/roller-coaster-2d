@@ -24,14 +24,14 @@ extern bool emergencyInProgress;
 void initSeats(float seatsLeftX, float seatsY, float seatStep);
 
 // da li su sva zauzeta sjedista vezana
-bool areAllOccupiedSeatsBelted();
+bool areAllSeatsFastened();
 
 // logika koja se izvrsava kad se voz vrati na pocetak
 // (odvezivanje svih zauzetih sjedista + pokretanje unloading faze)
 void handleRideReturned();
 
 // dodavanje novog putnika sa zadnje strane vagona (taster SPACE)
-void tryAddPassengerFromBack();
+void addPassengers();
 
 // obrada "slosilo se" signala za putnika na zadatom indeksu od naprijed (tasteri 1-8)
-void handleSickKeyFromFrontIndex(int keyIndex);
+void handleSickKey(int keyIndex);
