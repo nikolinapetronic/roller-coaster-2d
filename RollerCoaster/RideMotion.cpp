@@ -18,19 +18,19 @@ static RideState state = RideState::AtStartIdle;
 static bool  emergencyRequested = false;
 static bool  justReturnedToStart = false;
 
-static const float EMERGENCY_DECEL = 0.1f;  // koliko brzo koci kad se nekom slosi
-static const float RETURN_SPEED = 0.02f;  // mala konst. brzina nazad
+static const float EMERGENCY_DECEL = 0.20f;  // koliko brzo koci kad se nekom slosi
+static const float RETURN_SPEED = 0.04f;  // mala konst. brzina nazad
 static const float EMERGENCY_STOP_DURATION = 1.0f;  // 10 sekundi pauze
 
 static double stopTimer = 0.0;
 
 // brzina ubrzavanja i maksimalna brzina voznje
-static const float RIDE_ACCEL = 0.02f;
-static const float RIDE_MAX_SPEED = 1.15f; 
+static const float RIDE_ACCEL = 0.08f;
+static const float RIDE_MAX_SPEED = 0.15f; 
 
-static const float RIDE_SLOPE_ACCEL = 0.6f;   // koliko jako nagib utice na ubrzanje
-static const float RIDE_MIN_SPEED = 0.01f;  // minimalna brzina koja se smatra kretanjem
-static const float RIDE_MAX_SLOPE_SPEED = 1.60f; // apsolutni max, i nizbrdo
+static const float RIDE_SLOPE_ACCEL = 0.90f;   // koliko jako nagib utice na ubrzanje
+static const float RIDE_MIN_SPEED = 0.06f;  // minimalna brzina koja se smatra kretanjem
+static const float RIDE_MAX_SLOPE_SPEED = 0.60f; // apsolutni max, i nizbrdo
 
 // ------------------ GLOBALNO STANJE MODULA ------------------
 // opseg pruge po x-osi (NDC)
@@ -214,7 +214,7 @@ static void sampleTrack(float param, float& outX, float& outY, float& outAngle)
     if (angle < -maxAngleRad) angle = -maxAngleRad;
 
     // ublazavanje efekta da ne bude previse agresivan vizuelno
-    angle *= 0.5f;
+    //angle *= 0.5f;
 
     // interpolirano X/Y na segmentu
     float x = (1.0f - localT) * x0 + localT * x1;
@@ -468,6 +468,6 @@ bool didJustReturnToStart()
 {
     if (!justReturnedToStart)
         return false;
-    justReturnedToStart = false;  // konzumiraj flag
+    justReturnedToStart = false;  // reset flaga
     return true;
 }

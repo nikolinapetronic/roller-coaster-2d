@@ -3,7 +3,7 @@
 // sve sto je vezano za kretanje i prugu
 
 // broj segmenata i tacaka pruge (za VAO i crtanje)
-constexpr int TRACK_SEGMENTS = 5000;
+constexpr int TRACK_SEGMENTS = 1200;
 constexpr int TRACK_POINT_COUNT = TRACK_SEGMENTS + 1;
 
 // inicijalizacija logike kretanja i generisanje pruge
