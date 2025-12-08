@@ -20,7 +20,7 @@ static bool  justReturnedToStart = false;
 
 static const float EMERGENCY_DECEL = 0.20f;  // koliko brzo koci kad se nekom slosi
 static const float RETURN_SPEED = 0.04f;  // mala konst. brzina nazad
-static const float EMERGENCY_STOP_DURATION = 1.0f;  // 10 sekundi pauze
+static const float EMERGENCY_STOP_DURATION = 10.0f;  // 10 sekundi pauze
 
 static double stopTimer = 0.0;
 
